@@ -11,6 +11,7 @@ import matchRoutes from './routes/match.routes';
 import likeRoutes from './routes/like.routes';
 import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
+import preferencesRoutes from './routes/preferences.routes';
 
 // Load environment variables
 dotenv.config();
@@ -55,6 +56,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/likes', likeRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/preferences', preferencesRoutes);
 app.use('/api/admin', adminRoutes);
 
 // API info route
@@ -68,6 +70,7 @@ app.get('/api', (req, res) => {
             matches: '/api/matches/*',
             messages: '/api/messages/*',
             likes: '/api/likes/*',
+            preferences: '/api/preferences/*',
             payments: '/api/payment/*',
             admin: '/api/admin/*',
         }

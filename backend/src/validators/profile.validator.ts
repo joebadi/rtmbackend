@@ -17,6 +17,7 @@ export const createProfileSchema = z.object({
     hobbies: z.string().max(300, 'Hobbies must be less than 300 characters').optional(),
 
     // Location
+    location: z.string().optional(), // Flutter sends location as single string
     city: z.string().optional(),
     state: z.string().optional(),
     country: z.string().optional(),
@@ -25,7 +26,8 @@ export const createProfileSchema = z.object({
 
     // Ethnicity
     ethnicityCountry: z.string().optional(),
-    stateOfOrigin: z.string().optional(),
+    ethnicityState: z.string().optional(), // Flutter field name
+    stateOfOrigin: z.string().optional(), // Backend field name
     tribe: z.string().optional(),
 
     // Personal Details
@@ -58,6 +60,9 @@ export const createProfileSchema = z.object({
     smokingStatus: z.string().optional(),
     hasChildren: z.string().optional(),
     livingConditions: z.string().optional(),
+
+    // Flutter field name for zodiac
+    zodiac: z.string().optional(),
 });
 
 export type CreateProfileInput = z.infer<typeof createProfileSchema>;

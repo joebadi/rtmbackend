@@ -60,4 +60,12 @@ router.post('/forgot-password', authController.forgotPassword);
  */
 router.post('/reset-password', authController.resetPassword);
 
+/**
+ * @route   POST /api/auth/check-password-strength
+ * @desc    Check password strength in real-time
+ * @access  Public
+ */
+router.post('/check-password-strength', authController.checkPasswordStrength);
+
 export default router;
+

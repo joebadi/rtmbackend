@@ -9,6 +9,7 @@ import {
     forgotPasswordSchema,
     resetPasswordSchema,
 } from '../validators/auth.validator';
+import { calculatePasswordStrength, isCommonPassword } from '../utils/password.util';
 
 /**
  * Register a new user
@@ -228,6 +229,43 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
                 errors: error.errors,
             });
         }
+        next(error);
+    }
+};
+
+/**
+ * Check password strength
+ * Real-time password strength validation for UI
+ */
+export const checkPasswordStrength = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { password } = req.body;
+
+        if (!password || typeof password !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'Password is required',
+            });
+        }
+
+        // Calculate password strength
+        const strength = calculatePasswordStrength(password);
+
+        // Check if it's a common password
+        const isCommon = isCommonPassword(password);
+        if (isCommon) {
+            strength.feedback.push('This is a commonly used password. Choose something more unique.');
+            strength.score = Math.max(0, strength.score - 20);
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ...strength,
+                isCommon,
+            },
+        });
+    } catch (error) {
         next(error);
     }
 };

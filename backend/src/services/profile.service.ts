@@ -1,6 +1,10 @@
 import { prisma } from '../server';
 import { uploadImage, deleteImage } from '../utils/storage.util';
 import {
+    geocodeAddress,
+    parseLocationString,
+} from '../utils/geolocation.util';
+import {
     CreateProfileInput,
     UpdateProfileInput,
     PrivacySettingsInput,
@@ -216,11 +220,65 @@ export const updateProfile = async (userId: string, data: UpdateProfileInput) =>
         zodiacSign = data.zodiacSign || calculateZodiacSign(dateOfBirth);
     }
 
+    // Handle location with geolocation
+    let locationData: any = {};
+    if (data.location) {
+        try {
+            // Parse location string (e.g., "Lagos, Lagos State, Nigeria")
+            const parsed = parseLocationString(data.location);
+
+            // Geocode to get coordinates
+            const geocoded = await geocodeAddress(data.location);
+
+            locationData = {
+                city: geocoded.city || parsed.city,
+                state: geocoded.state || parsed.state,
+                country: geocoded.country || parsed.country,
+                latitude: geocoded.latitude,
+                longitude: geocoded.longitude,
+                // Note: PostGIS location field can be populated later with a migration if needed
+            };
+        } catch (error) {
+            console.error('Geolocation error:', error);
+            // If geocoding fails, just parse the string
+            const parsed = parseLocationString(data.location);
+            locationData = {
+                city: parsed.city,
+                state: parsed.state,
+                country: parsed.country,
+            };
+        }
+    }
+
+    // Map Flutter field names to backend field names
+    const mappedData: any = { ...data };
+
+    // ethnicityState → stateOfOrigin
+    if (data.ethnicityState !== undefined) {
+        mappedData.stateOfOrigin = data.ethnicityState;
+        delete mappedData.ethnicityState;
+    }
+
+    // zodiac → zodiacSign
+    if (data.zodiac !== undefined) {
+        mappedData.zodiacSign = data.zodiac;
+        delete mappedData.zodiac;
+    }
+
+    // Transform gender string to enum (Male → MALE, Female → FEMALE)
+    if (data.gender) {
+        mappedData.gender = data.gender.toUpperCase();
+    }
+
+    // Remove location from mapped data (we'll use locationData)
+    delete mappedData.location;
+
     // Update profile
     const updatedProfile = await prisma.profile.update({
         where: { userId },
         data: {
-            ...data,
+            ...mappedData,
+            ...locationData,
             ...(data.dateOfBirth && { dateOfBirth: new Date(data.dateOfBirth), age, zodiacSign }),
         },
         include: {

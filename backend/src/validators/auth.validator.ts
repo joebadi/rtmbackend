@@ -13,7 +13,11 @@ export const registerSchema = z.object({
         .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
         .regex(/[0-9]/, 'Password must contain at least one number'),
     dateOfBirth: z.string().optional(), // Optional during registration, can be added later
-    gender: z.enum(['MALE', 'FEMALE']).optional(), // Optional during registration
+    // Accept both string (Flutter: "Male"/"Female") and enum ("MALE"/"FEMALE")
+    gender: z.union([
+        z.enum(['MALE', 'FEMALE']),
+        z.string().transform((val) => val.toUpperCase() as 'MALE' | 'FEMALE')
+    ]).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
