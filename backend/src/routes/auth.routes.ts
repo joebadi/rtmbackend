@@ -67,5 +67,12 @@ router.post('/reset-password', authController.resetPassword);
  */
 router.post('/check-password-strength', authController.checkPasswordStrength);
 
+/**
+ * @route   POST /api/auth/check-existence
+ * @desc    Check if email/phone exists
+ * @access  Public
+ */
+router.post('/check-existence', authController.checkExistence);
+
 export default router;
 

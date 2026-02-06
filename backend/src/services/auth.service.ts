@@ -10,6 +10,7 @@ import {
     RefreshTokenInput,
     ForgotPasswordInput,
     ResetPasswordInput,
+    CheckExistenceInput,
 } from '../validators/auth.validator';
 
 /**
@@ -405,5 +406,32 @@ export const resetPassword = async (data: ResetPasswordInput) => {
 
     return {
         message: 'Password reset successful',
+    };
+};
+
+/**
+ * Check if user exists (email or phone)
+ */
+export const checkExistence = async (data: CheckExistenceInput) => {
+    let emailExists = false;
+    let phoneExists = false;
+
+    if (data.email) {
+        const count = await prisma.user.count({
+            where: { email: data.email },
+        });
+        emailExists = count > 0;
+    }
+
+    if (data.phoneNumber) {
+        const count = await prisma.user.count({
+            where: { phoneNumber: data.phoneNumber },
+        });
+        phoneExists = count > 0;
+    }
+
+    return {
+        emailExists,
+        phoneExists,
     };
 };

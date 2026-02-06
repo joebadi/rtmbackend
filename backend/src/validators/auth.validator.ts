@@ -83,3 +83,15 @@ export const resetPasswordSchema = z.object({
 });
 
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/**
+ * Check existence validation schema
+ */
+export const checkExistenceSchema = z.object({
+    email: z.string().email().optional(),
+    phoneNumber: z.string().optional(),
+}).refine(data => data.email || data.phoneNumber, {
+    message: "Either email or phone number must be provided"
+});
+
+export type CheckExistenceInput = z.infer<typeof checkExistenceSchema>;

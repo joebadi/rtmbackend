@@ -8,6 +8,7 @@ import {
     refreshTokenSchema,
     forgotPasswordSchema,
     resetPasswordSchema,
+    checkExistenceSchema,
 } from '../validators/auth.validator';
 import { calculatePasswordStrength, isCommonPassword } from '../utils/password.util';
 
@@ -266,6 +267,31 @@ export const checkPasswordStrength = async (req: Request, res: Response, next: N
             },
         });
     } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Check if user exists (available for registration)
+ */
+export const checkExistence = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const validatedData = checkExistenceSchema.parse(req.body);
+
+        const result = await authService.checkExistence(validatedData);
+
+        res.status(200).json({
+            success: true,
+            data: result,
+        });
+    } catch (error: any) {
+        if (error.name === 'ZodError') {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation error',
+                errors: error.errors,
+            });
+        }
         next(error);
     }
 };

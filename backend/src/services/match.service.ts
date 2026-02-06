@@ -391,13 +391,13 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
     const profiles = await prisma.profile.findMany({
         where: {
             userId: { not: userId },
-            gender: targetGender,
+            // gender: targetGender, // Relaxed for testing/explore
             isActive: true,
             isBanned: false,
             showOnMap: true,
             country: userProfile.country,
-            latitude: { not: null },
-            longitude: { not: null },
+            // latitude: { not: null },
+            // longitude: { not: null },
         },
         include: {
             photos: {
