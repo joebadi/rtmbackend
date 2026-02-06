@@ -395,7 +395,7 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
         isActive: true,
         isBanned: false,
         showOnMap: true,
-        country: userProfile.country,
+        // country: userProfile.country, // Relaxed for debugging: show ALL users
     };
     console.log('Debug: Query where clause:', JSON.stringify(whereClause));
 
