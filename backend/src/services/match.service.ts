@@ -378,27 +378,31 @@ export const filterMatches = async (userId: string, filters: FilterMatchesInput)
  * Get nearby users (simplified - will use PostGIS later)
  */
 export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) => {
+    console.log(`Debug: getNearbyUsers called for ${userId}`);
     const userProfile = await prisma.profile.findUnique({ where: { userId } });
 
     if (!userProfile) {
+        console.log('Debug: Profile not found');
         throw new Error('Profile not found');
     }
+    console.log(`Debug: User Country: '${userProfile.country}'`);
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+
+    const whereClause = {
+        userId: { not: userId },
+        // gender: targetGender, // Relaxed for testing/explore
+        isActive: true,
+        isBanned: false,
+        showOnMap: true,
+        country: userProfile.country,
+    };
+    console.log('Debug: Query where clause:', JSON.stringify(whereClause));
 
     // For now, return users from same country/state
     // TODO: Implement PostGIS distance calculation
     const profiles = await prisma.profile.findMany({
-        where: {
-            userId: { not: userId },
-            // gender: targetGender, // Relaxed for testing/explore
-            isActive: true,
-            isBanned: false,
-            showOnMap: true,
-            country: userProfile.country,
-            // latitude: { not: null },
-            // longitude: { not: null },
-        },
+        where: whereClause,
         include: {
             photos: {
                 where: { isVerified: true },

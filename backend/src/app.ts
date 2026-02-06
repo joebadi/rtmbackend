@@ -1,7 +1,10 @@
+import dotenv from 'dotenv';
+// Load environment variables immediately
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import path from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -12,9 +15,6 @@ import likeRoutes from './routes/like.routes';
 import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
 import preferencesRoutes from './routes/preferences.routes';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
