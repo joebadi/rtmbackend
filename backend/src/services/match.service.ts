@@ -536,8 +536,14 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
     }
 
     // Return profiles without compatibility scores for users without preferences
+    // Preserve photos and user data
     return profiles.slice(0, limit).map(profile => ({
-        profile,
-        compatibility: { score: 50, matches: [], dealBreakers: [] }
+        ...profile,
+        distance: 0,
+        photos: profile.photos || [],
+        user: profile.user,
+        compatibility: null,
     }));
+    compatibility: { score: 50, matches: [], dealBreakers: [] }
+}));
 };
