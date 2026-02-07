@@ -422,13 +422,18 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
     });
 
     console.log(`Debug: Found ${profiles.length} profiles`);
+    if (profiles.length > 0) {
+        console.log('Debug: First profile photos:', profiles[0].photos);
+        console.log('Debug: First profile user:', profiles[0].user);
+    }
 
-    // Calculate simple distance (will be replaced with PostGIS)
+    // Return profiles with distance - preserve nested structure for photos and user
     const profilesWithDistance = profiles.map((profile) => ({
         ...profile,
         distance: 0, // Placeholder
-        latitude: profile.latitude || 0,
-        longitude: profile.longitude || 0,
+        // Ensure photos and user are preserved
+        photos: profile.photos || [],
+        user: profile.user,
     }));
 
     return profilesWithDistance;
