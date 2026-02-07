@@ -544,6 +544,4 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
         user: profile.user,
         compatibility: null,
     }));
-    compatibility: { score: 50, matches: [], dealBreakers: [] }
-}));
 };
