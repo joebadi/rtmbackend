@@ -385,17 +385,16 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
         console.log('Debug: Profile not found');
         throw new Error('Profile not found');
     }
-    console.log(`Debug: User Country: '${userProfile.country}'`);
+    console.log(`Debug: User gender: ${userProfile.gender}`);
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
 
     const whereClause = {
         userId: { not: userId },
-        // gender: targetGender, // Relaxed for testing/explore
+        gender: targetGender as 'MALE' | 'FEMALE', // Re-enabled for proper matching
         isActive: true,
         isBanned: false,
-        showOnMap: true,
-        // country: userProfile.country, // Relaxed for debugging: show ALL users
+        // Removed showOnMap requirement - new users don't have this set
     };
     console.log('Debug: Query where clause:', JSON.stringify(whereClause));
 
@@ -405,9 +404,86 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
         where: whereClause,
         include: {
             photos: {
-                where: { isVerified: true },
+                // Removed isVerified filter - show all photos for better UX
                 orderBy: { isPrimary: 'desc' },
-                take: 1,
+                take: 3, // Increased to show more photos
+            },
+            user: {
+                select: {
+                    id: true,
+                    email: true, // For debugging
+                    isPremium: true,
+                    isOnline: true,
+                    lastActive: true,
+                },
+            },
+        },
+        take: params.limit,
+    });
+
+    console.log(`Debug: Found ${profiles.length} profiles`);
+
+    // Calculate simple distance (will be replaced with PostGIS)
+    const profilesWithDistance = profiles.map((profile) => ({
+        ...profile,
+        distance: 0, // Placeholder
+        latitude: profile.latitude || 0,
+        longitude: profile.longitude || 0,
+    }));
+
+    return profilesWithDistance;
+};
+
+/**
+ * Get match suggestions (smart algorithm)
+ */
+export const getMatchSuggestions = async (userId: string, limit: number = 10) => {
+    const userProfile = await prisma.profile.findUnique({ where: { userId } });
+
+    if (!userProfile) {
+        throw new Error('Profile not found');
+    }
+
+    // Try to get preferences, but don't fail if they don't exist
+    const userPrefs = await prisma.matchPreferences.findUnique({ where: { userId } });
+
+    const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+
+    const where: Prisma.ProfileWhereInput = {
+        userId: { not: userId },
+        gender: targetGender as 'MALE' | 'FEMALE',
+        isActive: true,
+        isBanned: false,
+        user: {
+            isEmailVerified: true,
+        },
+    };
+
+    // Apply preferences if they exist
+    if (userPrefs) {
+        where.age = {
+            gte: userPrefs.ageMin,
+            lte: userPrefs.ageMax,
+        };
+
+        // Apply location filter if specified
+        if (userPrefs.locationStates.length > 0) {
+            where.state = { in: userPrefs.locationStates };
+        }
+
+        // Apply religion filter if specified
+        if (userPrefs.religion.length > 0) {
+            where.religion = { in: userPrefs.religion };
+        }
+    }
+
+    const profiles = await prisma.profile.findMany({
+        where,
+        include: {
+            photos: {
+                // Removed isVerified filter - show all photos for better UX
+                orderBy: { isPrimary: 'desc' },
+                take: 3, // Increased to show more photos
             },
             user: {
                 select: {
@@ -418,36 +494,45 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
                 },
             },
         },
-        take: params.limit,
+        orderBy: [
+            { user: { isPremium: 'desc' } }, // Premium users first
+            { user: { isOnline: 'desc' } },  // Online users next
+            { updatedAt: 'desc' },            // Recently updated profiles
+        ],
+        take: limit * 2, // Get more to filter
     });
 
-    // Calculate simple distance (will be replaced with PostGIS)
-    const profilesWithDistance = profiles.map((profile) => ({
-        ...profile,
-        distance: 0, // Placeholder
+    // Calculate compatibility if preferences exist, otherwise return basic profile
+    if (userPrefs) {
+        const matchesWithScores = await Promise.all(
+            profiles.map(async (profile) => {
+                const compatibility = await calculateCompatibility(userId, profile.userId);
+                return {
+                    profile,
+                    compatibility,
+                };
+            })
+        );
+
+        // Filter out deal breakers and sort by score
+        const suggestions = matchesWithScores
+            .filter((m) => m.compatibility.dealBreakers.length === 0)
+            .sort((a, b) => {
+                // Prioritize online users
+                if (a.profile.user.isOnline && !b.profile.user.isOnline) return -1;
+                if (!a.profile.user.isOnline && b.profile.user.isOnline) return 1;
+
+                // Then by compatibility score
+                return b.compatibility.score - a.compatibility.score;
+            })
+            .slice(0, limit);
+
+        return suggestions;
+    }
+
+    // Return profiles without compatibility scores for users without preferences
+    return profiles.slice(0, limit).map(profile => ({
+        profile,
+        compatibility: { score: 50, matches: [], dealBreakers: [] }
     }));
-
-    return profilesWithDistance;
-};
-
-/**
- * Get match suggestions (smart algorithm)
- */
-export const getMatchSuggestions = async (userId: string, limit: number = 10) => {
-    // Get matches based on preferences
-    const matches = await getMatches(userId, limit * 2); // Get more to filter
-
-    // Sort by compatibility score and online status
-    const suggestions = matches
-        .sort((a, b) => {
-            // Prioritize online users
-            if (a.profile.user.isOnline && !b.profile.user.isOnline) return -1;
-            if (!a.profile.user.isOnline && b.profile.user.isOnline) return 1;
-
-            // Then by compatibility score
-            return b.compatibility.score - a.compatibility.score;
-        })
-        .slice(0, limit);
-
-    return suggestions;
 };
