@@ -17,11 +17,7 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
         },
     });
 
-    if (!areMutualLikes) {
-        throw new Error('You can only message users you have matched with');
-    }
-
-    // Find or create conversation
+    // Find existing conversation
     let conversation = await prisma.conversation.findFirst({
         where: {
             participants: {
@@ -34,13 +30,24 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
         },
         include: {
             participants: true,
+            messages: true,
         },
     });
+
+    // HYBRID LOGIC: Check intro message rules
+    if (!areMutualLikes) {
+        // If conversation exists and already has intro message, block
+        if (conversation && conversation.hasIntroMessage) {
+            throw new Error('You need to match with this user to continue chatting');
+        }
+        // If no conversation or no intro sent yet, allow (this is the intro message)
+    }
 
     if (!conversation) {
         // Create new conversation
         conversation = await prisma.conversation.create({
             data: {
+                hasIntroMessage: !areMutualLikes, // Mark intro if not matched
                 participants: {
                     create: [
                         { userId: senderId },
@@ -50,7 +57,14 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
             },
             include: {
                 participants: true,
+                messages: true,
             },
+        });
+    } else if (!areMutualLikes && !conversation.hasIntroMessage) {
+        // Update existing conversation to mark intro sent
+        await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { hasIntroMessage: true },
         });
     }
 

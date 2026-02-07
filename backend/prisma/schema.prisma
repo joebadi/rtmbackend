@@ -258,9 +258,10 @@ model MatchPreferences {
 // ============================================
 
 model Conversation {
-  id           String                      @id @default(uuid())
-  createdAt    DateTime                    @default(now())
-  updatedAt    DateTime                    @updatedAt
+  id              String                      @id @default(uuid())
+  hasIntroMessage Boolean                     @default(false)
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
 
   participants ConversationParticipant[]
   messages     Message[]
