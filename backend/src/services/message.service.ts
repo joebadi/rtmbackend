@@ -272,8 +272,9 @@ export const getMessages = async (
     });
 
     if (!participant) {
-        console.log('[getMessages] User not part of conversation');
-        throw new Error('You are not part of this conversation');
+        console.log('[getMessages] User not part of conversation - returning empty array');
+        // Return empty array instead of error for new conversations
+        return [];
     }
 
     const messages = await prisma.message.findMany({
