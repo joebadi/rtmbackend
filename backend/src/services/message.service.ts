@@ -17,16 +17,25 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
         },
     });
 
-    // Find existing conversation
+    // Find existing conversation between these two users
     let conversation = await prisma.conversation.findFirst({
         where: {
-            participants: {
-                every: {
-                    userId: {
-                        in: [senderId, receiverId],
+            AND: [
+                {
+                    participants: {
+                        some: {
+                            userId: senderId,
+                        },
                     },
                 },
-            },
+                {
+                    participants: {
+                        some: {
+                            userId: receiverId,
+                        },
+                    },
+                },
+            ],
         },
         include: {
             participants: true,
