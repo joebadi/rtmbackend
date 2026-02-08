@@ -19,10 +19,16 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             });
         }
 
+        console.log('[Controller] sendMessage - userId:', userId, 'body:', req.body);
+
         // Validate input
         const validatedData = sendMessageSchema.parse(req.body);
 
+        console.log('[Controller] Validated data:', validatedData);
+
         const message = await messageService.sendMessage(userId, validatedData);
+
+        console.log('[Controller] Message sent successfully');
 
         res.status(201).json({
             success: true,
@@ -30,6 +36,8 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             data: { message },
         });
     } catch (error: any) {
+        console.error('[Controller] Error in sendMessage:', error);
+
         if (error.name === 'ZodError') {
             return res.status(400).json({
                 success: false,
@@ -37,7 +45,13 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
                 errors: error.errors,
             });
         }
-        next(error);
+
+        // Return error response instead of calling next
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to send message',
+            error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+        });
     }
 };
 

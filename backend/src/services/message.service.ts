@@ -5,128 +5,152 @@ import { SendMessageInput } from '../validators/message.validator';
  * Send a message
  */
 export const sendMessage = async (senderId: string, data: SendMessageInput) => {
-    const { receiverId, content } = data;
+    try {
+        const { receiverId, content } = data;
 
-    // Check if users are matched (mutual like)
-    const areMutualLikes = await prisma.like.findFirst({
-        where: {
-            OR: [
-                { likerId: senderId, likedUserId: receiverId, isMutual: true },
-                { likerId: receiverId, likedUserId: senderId, isMutual: true },
-            ],
-        },
-    });
+        console.log('[sendMessage] Starting - sender:', senderId, 'receiver:', receiverId);
 
-    // Find existing conversation between these two users
-    let conversation = await prisma.conversation.findFirst({
-        where: {
-            AND: [
-                {
-                    participants: {
-                        some: {
-                            userId: senderId,
+        // Check if users are matched (mutual like)
+        const areMutualLikes = await prisma.like.findFirst({
+            where: {
+                OR: [
+                    { likerId: senderId, likedUserId: receiverId, isMutual: true },
+                    { likerId: receiverId, likedUserId: senderId, isMutual: true },
+                ],
+            },
+        });
+
+        console.log('[sendMessage] Mutual likes check:', areMutualLikes ? 'matched' : 'not matched');
+
+        // Find existing conversation between these two users
+        let conversation = await prisma.conversation.findFirst({
+            where: {
+                AND: [
+                    {
+                        participants: {
+                            some: {
+                                userId: senderId,
+                            },
                         },
                     },
-                },
-                {
-                    participants: {
-                        some: {
-                            userId: receiverId,
+                    {
+                        participants: {
+                            some: {
+                                userId: receiverId,
+                            },
                         },
                     },
-                },
-            ],
-        },
-        include: {
-            participants: true,
-            messages: true,
-        },
-    });
-
-    // HYBRID LOGIC: Check intro message rules
-    if (!areMutualLikes) {
-        // If conversation exists and already has intro message, block
-        if (conversation && conversation.hasIntroMessage) {
-            throw new Error('You need to match with this user to continue chatting');
-        }
-        // If no conversation or no intro sent yet, allow (this is the intro message)
-    }
-
-    if (!conversation) {
-        // Create new conversation
-        conversation = await prisma.conversation.create({
-            data: {
-                hasIntroMessage: !areMutualLikes, // Mark intro if not matched
-                participants: {
-                    create: [
-                        { userId: senderId },
-                        { userId: receiverId },
-                    ],
-                },
+                ],
             },
             include: {
                 participants: true,
                 messages: true,
             },
         });
-    } else if (!areMutualLikes && !conversation.hasIntroMessage) {
-        // Update existing conversation to mark intro sent
-        await prisma.conversation.update({
-            where: { id: conversation.id },
-            data: { hasIntroMessage: true },
-        });
-    }
 
-    // Create message
-    const message = await prisma.message.create({
-        data: {
-            conversationId: conversation.id,
-            senderId,
-            receiverId,
-            messageType: 'TEXT',
-            content,
-        },
-        include: {
-            sender: {
-                select: {
-                    id: true,
-                    profile: {
-                        select: {
-                            firstName: true,
-                            photos: {
-                                where: { isPrimary: true },
-                                take: 1,
+        console.log('[sendMessage] Existing conversation:', conversation ? conversation.id : 'none');
+
+        // HYBRID LOGIC: Check intro message rules
+        if (!areMutualLikes) {
+            // If conversation exists and already has intro message, block
+            if (conversation && conversation.hasIntroMessage) {
+                console.log('[sendMessage] Blocking - intro already sent');
+                throw new Error('You need to match with this user to continue chatting');
+            }
+            // If no conversation or no intro sent yet, allow (this is the intro message)
+            console.log('[sendMessage] Allowing intro message');
+        }
+
+        if (!conversation) {
+            console.log('[sendMessage] Creating new conversation');
+            // Create new conversation
+            conversation = await prisma.conversation.create({
+                data: {
+                    hasIntroMessage: !areMutualLikes, // Mark intro if not matched
+                    participants: {
+                        create: [
+                            { userId: senderId },
+                            { userId: receiverId },
+                        ],
+                    },
+                },
+                include: {
+                    participants: true,
+                    messages: true,
+                },
+            });
+            console.log('[sendMessage] Conversation created:', conversation.id);
+        } else if (!areMutualLikes && !conversation.hasIntroMessage) {
+            console.log('[sendMessage] Updating conversation to mark intro sent');
+            // Update existing conversation to mark intro sent
+            await prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { hasIntroMessage: true },
+            });
+        }
+
+        console.log('[sendMessage] Creating message');
+        // Create message
+        const message = await prisma.message.create({
+            data: {
+                conversationId: conversation.id,
+                senderId,
+                receiverId,
+                messageType: 'TEXT',
+                content,
+            },
+            include: {
+                sender: {
+                    select: {
+                        id: true,
+                        profile: {
+                            select: {
+                                firstName: true,
+                                photos: {
+                                    where: { isPrimary: true },
+                                    take: 1,
+                                },
                             },
                         },
                     },
                 },
             },
-        },
-    });
+        });
 
-    // Update unread count for receiver
-    await prisma.conversationParticipant.updateMany({
-        where: {
-            conversationId: conversation.id,
-            userId: receiverId,
-        },
-        data: {
-            unreadCount: { increment: 1 },
-        },
-    });
+        console.log('[sendMessage] Message created:', message.id);
 
-    // Create notification
-    await prisma.notification.create({
-        data: {
-            userId: receiverId,
-            type: 'NEW_MESSAGE',
-            title: 'New Message',
-            body: content.substring(0, 100),
-            data: { senderId },
-        },
-    });
+        // Update unread count for receiver
+        await prisma.conversationParticipant.updateMany({
+            where: {
+                conversationId: conversation.id,
+                userId: receiverId,
+            },
+            data: {
+                unreadCount: { increment: 1 },
+            },
+        });
 
-    return message;
+        console.log('[sendMessage] Unread count updated');
+
+        // Create notification
+        await prisma.notification.create({
+            data: {
+                userId: receiverId,
+                type: 'NEW_MESSAGE',
+                title: 'New Message',
+                body: content.substring(0, 100),
+                data: { senderId },
+            },
+        });
+
+        console.log('[sendMessage] Notification created');
+        console.log('[sendMessage] Success - returning message');
+
+        return message;
+    } catch (error) {
+        console.error('[sendMessage] ERROR:', error);
+        throw error;
+    }
 };
 
 /**
@@ -203,10 +227,42 @@ export const getConversations = async (userId: string, limit: number = 20, offse
  */
 export const getMessages = async (
     userId: string,
-    conversationId: string,
+    conversationIdOrUserId: string,
     limit: number = 50,
     offset: number = 0
 ) => {
+    console.log('[getMessages] userId:', userId, 'conversationIdOrUserId:', conversationIdOrUserId);
+
+    let conversationId = conversationIdOrUserId;
+
+    // Check if this is a userId instead of conversationId
+    // Try to find conversation with this user
+    const conversationWithUser = await prisma.conversation.findFirst({
+        where: {
+            AND: [
+                {
+                    participants: {
+                        some: {
+                            userId: userId,
+                        },
+                    },
+                },
+                {
+                    participants: {
+                        some: {
+                            userId: conversationIdOrUserId,
+                        },
+                    },
+                },
+            ],
+        },
+    });
+
+    if (conversationWithUser) {
+        console.log('[getMessages] Found conversation by userId:', conversationWithUser.id);
+        conversationId = conversationWithUser.id;
+    }
+
     // Verify user is part of conversation
     const participant = await prisma.conversationParticipant.findFirst({
         where: {
@@ -216,6 +272,7 @@ export const getMessages = async (
     });
 
     if (!participant) {
+        console.log('[getMessages] User not part of conversation');
         throw new Error('You are not part of this conversation');
     }
 
@@ -246,6 +303,7 @@ export const getMessages = async (
         skip: offset,
     });
 
+    console.log('[getMessages] Returning', messages.length, 'messages');
     return messages.reverse(); // Return in chronological order
 };
 
