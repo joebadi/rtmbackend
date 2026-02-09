@@ -1,5 +1,6 @@
 import { prisma } from '../server';
 import { SendMessageInput } from '../validators/message.validator';
+import { getIO } from './socket.service';
 
 /**
  * Send a message
@@ -51,14 +52,36 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
         console.log('[sendMessage] Existing conversation:', conversation ? conversation.id : 'none');
 
         // HYBRID LOGIC: Check intro message rules
+        // HYBRID LOGIC: Check intro message rules
         if (!areMutualLikes) {
-            // If conversation exists and already has intro message, block
-            if (conversation && conversation.hasIntroMessage) {
-                console.log('[sendMessage] Blocking - intro already sent');
-                throw new Error('You need to match with this user to continue chatting');
+            // Check if sender is premium
+            const sender = await prisma.user.findUnique({
+                where: { id: senderId },
+                select: { isPremium: true, diamonds: true },
+            });
+
+            // If premium, allow unlimited (Bypass check)
+            if (sender?.isPremium) {
+                console.log('[sendMessage] Premium user - bypassing limits');
+            } else {
+                // If regular user, check how many messages THEY have sent in this conversation
+                if (conversation) {
+                    const sentCount = await prisma.message.count({
+                        where: {
+                            conversationId: conversation.id,
+                            senderId: senderId,
+                        },
+                    });
+
+                    // Allow 1 message (Icebreaker) per user
+                    // Note: Future "diamonds" logic will go here.
+                    if (sentCount >= 1) {
+                        console.log('[sendMessage] Blocking - user already sent icebreaker');
+                        throw new Error('You need to match with this user to continue chatting');
+                    }
+                }
+                console.log('[sendMessage] Allowing icebreaker message');
             }
-            // If no conversation or no intro sent yet, allow (this is the intro message)
-            console.log('[sendMessage] Allowing intro message');
         }
 
         if (!conversation) {
@@ -145,6 +168,17 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
 
         console.log('[sendMessage] Notification created');
         console.log('[sendMessage] Success - returning message');
+
+        // Emit new message event to receiver
+        try {
+            const io = getIO();
+            io.to(receiverId).emit('new_message', {
+                message,
+                conversationId: conversation.id,
+            });
+        } catch (error) {
+            console.warn('Socket emit failed:', error);
+        }
 
         return message;
     } catch (error) {
@@ -361,6 +395,14 @@ export const markAsRead = async (userId: string, conversationId: string) => {
         where: { id: participant.id },
         data: { unreadCount: 0 },
     });
+
+    // Emit read event to the user (for multi-device sync)
+    try {
+        const io = getIO();
+        io.to(userId).emit('conversation_read', { conversationId });
+    } catch (error) {
+        console.warn('Socket emit failed:', error);
+    }
 
     return {
         message: 'Messages marked as read',
