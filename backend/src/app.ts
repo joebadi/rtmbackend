@@ -15,15 +15,12 @@ import likeRoutes from './routes/like.routes';
 import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
 import preferencesRoutes from './routes/preferences.routes';
+import notificationRoutes from './routes/notification.routes';
+import { initSocket } from './services/socket.service';
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-    cors: {
-        origin: process.env.ADMIN_URL || 'http://localhost:3000',
-        credentials: true,
-    },
-});
+const io = initSocket(httpServer);
 
 // Middleware
 app.use(helmet());
@@ -57,6 +54,7 @@ app.use('/api/matches', matchRoutes);
 app.use('/api/likes', likeRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/preferences', preferencesRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
 
 // API info route
@@ -77,14 +75,7 @@ app.get('/api', (req, res) => {
     });
 });
 
-// Socket.io connection handler
-io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
-
-    socket.on('disconnect', () => {
-        console.log(`Client disconnected: ${socket.id}`);
-    });
-});
+// Socket.io logic moved to socket.service.ts
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -231,7 +231,9 @@ export const getMessages = async (
     limit: number = 50,
     offset: number = 0
 ) => {
-    console.log('[getMessages] userId:', userId, 'conversationIdOrUserId:', conversationIdOrUserId);
+    console.log('[getMessages] ===== START =====');
+    console.log('[getMessages] userId:', userId);
+    console.log('[getMessages] conversationIdOrUserId:', conversationIdOrUserId);
 
     let conversationId = conversationIdOrUserId;
 
@@ -261,7 +263,18 @@ export const getMessages = async (
     if (conversationWithUser) {
         console.log('[getMessages] Found conversation by userId:', conversationWithUser.id);
         conversationId = conversationWithUser.id;
+    } else {
+        console.log('[getMessages] No conversation found by userId, using as conversationId');
     }
+
+    console.log('[getMessages] Final conversationId:', conversationId);
+
+    // Debug: Check with raw query
+    const rawCheck = await prisma.$queryRaw`
+        SELECT * FROM conversation_participants 
+        WHERE "conversationId" = ${conversationId} AND "userId" = ${userId}
+    `;
+    console.log('[getMessages] Raw participant check:', rawCheck);
 
     // Verify user is part of conversation
     const participant = await prisma.conversationParticipant.findFirst({
@@ -270,6 +283,11 @@ export const getMessages = async (
             userId,
         },
     });
+
+    console.log('[getMessages] Participant found:', participant ? 'YES' : 'NO');
+    if (participant) {
+        console.log('[getMessages] Participant details:', { userId: participant.userId, conversationId: participant.conversationId });
+    }
 
     if (!participant) {
         console.log('[getMessages] User not part of conversation - returning empty array');
@@ -304,7 +322,8 @@ export const getMessages = async (
         skip: offset,
     });
 
-    console.log('[getMessages] Returning', messages.length, 'messages');
+    console.log('[getMessages] Found', messages.length, 'messages');
+    console.log('[getMessages] ===== END =====');
     return messages.reverse(); // Return in chronological order
 };
 
