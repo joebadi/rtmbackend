@@ -52,8 +52,37 @@ export class NotificationService {
             where: { userId, isRead: false },
         });
 
+        // Enrich personal notifications with related user profile data
+        const enrichedNotifications = await Promise.all(
+            notifications.map(async (notification) => {
+                const data = notification.data as any;
+                if (data?.relatedUserId) {
+                    try {
+                        const relatedUser = await prisma.user.findUnique({
+                            where: { id: data.relatedUserId },
+                            select: {
+                                id: true,
+                                profile: {
+                                    select: {
+                                        firstName: true,
+                                        lastName: true,
+                                        dateOfBirth: true,
+                                        photos: { take: 1, select: { url: true } },
+                                    },
+                                },
+                            },
+                        });
+                        return { ...notification, relatedUser };
+                    } catch {
+                        return notification;
+                    }
+                }
+                return notification;
+            })
+        );
+
         return {
-            notifications,
+            notifications: enrichedNotifications,
             pagination: {
                 page,
                 limit,
