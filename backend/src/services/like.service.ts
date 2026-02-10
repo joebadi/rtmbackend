@@ -1,5 +1,6 @@
 import { prisma } from '../server';
 import { SendLikeInput } from '../validators/like.validator';
+import { NotificationService } from './notification.service';
 
 /**
  * Send a like to another user
@@ -73,18 +74,33 @@ export const sendLike = async (likerId: string, data: SendLikeInput) => {
         data: { likeCount: { increment: 1 } },
     });
 
-    // Create notification for the liked user
-    await prisma.notification.create({
-        data: {
-            userId: likedUserId,
-            type: isMutual ? 'MUTUAL_MATCH' : 'NEW_LIKE',
-            title: isMutual ? "It's a Match!" : 'New Like',
-            body: isMutual
-                ? 'You have a new match! Start chatting now.'
-                : 'Someone liked your profile.',
-            data: { relatedUserId: likerId },
-        },
-    });
+    // Create notifications with real-time socket delivery
+    if (isMutual) {
+        // Notify both users about the match
+        await NotificationService.createNotification(
+            likedUserId,
+            'MUTUAL_MATCH',
+            "It's a Match!",
+            'You have a new match! Start chatting now.',
+            { relatedUserId: likerId }
+        );
+        await NotificationService.createNotification(
+            likerId,
+            'MUTUAL_MATCH',
+            "It's a Match!",
+            'You have a new match! Start chatting now.',
+            { relatedUserId: likedUserId }
+        );
+    } else {
+        // Notify the liked user about the new like
+        await NotificationService.createNotification(
+            likedUserId,
+            'NEW_LIKE',
+            'New Like',
+            'Someone liked your profile.',
+            { relatedUserId: likerId }
+        );
+    }
 
     return {
         like,
@@ -97,26 +113,31 @@ export const sendLike = async (likerId: string, data: SendLikeInput) => {
  * Create conversation for mutual match
  */
 const createConversationForMatch = async (user1Id: string, user2Id: string) => {
-    // Check if conversation already exists
+    // Check if conversation already exists between these two users
     const existingConversation = await prisma.conversation.findFirst({
         where: {
-            participants: {
-                every: {
-                    userId: {
-                        in: [user1Id, user2Id],
-                    },
-                },
-            },
+            AND: [
+                { participants: { some: { userId: user1Id } } },
+                { participants: { some: { userId: user2Id } } },
+            ],
         },
     });
 
     if (existingConversation) {
+        // If conversation was created via icebreaker, mark it as matched now
+        if (existingConversation.hasIntroMessage) {
+            await prisma.conversation.update({
+                where: { id: existingConversation.id },
+                data: { hasIntroMessage: false },
+            });
+        }
         return existingConversation;
     }
 
-    // Create new conversation
+    // Create new conversation (matched users, no intro restriction)
     const conversation = await prisma.conversation.create({
         data: {
+            hasIntroMessage: false,
             participants: {
                 create: [
                     { userId: user1Id },

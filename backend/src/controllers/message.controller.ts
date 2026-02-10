@@ -46,6 +46,15 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             });
         }
 
+        // Handle match-required icebreaker limit error
+        if (error.message && error.message.includes('need to match')) {
+            return res.status(403).json({
+                success: false,
+                code: 'MATCH_REQUIRED',
+                message: error.message,
+            });
+        }
+
         // Return error response instead of calling next
         return res.status(500).json({
             success: false,
