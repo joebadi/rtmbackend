@@ -16,6 +16,9 @@ import messageRoutes from './routes/message.routes';
 import adminRoutes from './routes/admin.routes';
 import preferencesRoutes from './routes/preferences.routes';
 import notificationRoutes from './routes/notification.routes';
+import paymentRoutes from './routes/payment.routes';
+import liveRoutes from './routes/live.routes';
+import adminLiveRoutes from './routes/admin-live.routes';
 import { initSocket } from './services/socket.service';
 
 const app = express();
@@ -55,6 +58,9 @@ app.use('/api/likes', likeRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/preferences', preferencesRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/live', liveRoutes);
+app.use('/api/admin/live', adminLiveRoutes);
 app.use('/api/admin', adminRoutes);
 
 // API info route

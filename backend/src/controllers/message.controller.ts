@@ -26,14 +26,18 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
 
         console.log('[Controller] Validated data:', validatedData);
 
-        const message = await messageService.sendMessage(userId, validatedData);
+        const result = await messageService.sendMessage(userId, validatedData);
 
         console.log('[Controller] Message sent successfully');
 
         res.status(201).json({
             success: true,
             message: 'Message sent successfully',
-            data: { message },
+            data: {
+                message: result.message,
+                diamondsSpent: result.diamondsSpent,
+                diamondBalance: result.diamondBalance,
+            },
         });
     } catch (error: any) {
         console.error('[Controller] Error in sendMessage:', error);
@@ -46,7 +50,20 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             });
         }
 
-        // Handle match-required icebreaker limit error
+        // Not enough diamonds to send a paid message — prompt the user to top up.
+        if (error.code === 'INSUFFICIENT_DIAMONDS') {
+            return res.status(402).json({
+                success: false,
+                code: 'INSUFFICIENT_DIAMONDS',
+                message: 'You need more diamonds to keep chatting',
+                data: {
+                    required: error.required,
+                    balance: error.balance,
+                },
+            });
+        }
+
+        // Legacy match-required path (kept for backwards compatibility).
         if (error.message && error.message.includes('need to match')) {
             return res.status(403).json({
                 success: false,

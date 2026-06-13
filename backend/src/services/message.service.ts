@@ -1,6 +1,8 @@
 import { prisma } from '../server';
 import { SendMessageInput } from '../validators/message.validator';
 import { getIO } from './socket.service';
+import { DIAMOND_COSTS } from '../config/diamonds.config';
+import { debitDiamonds } from './diamond.service';
 
 /**
  * Send a message
@@ -51,36 +53,43 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
 
         console.log('[sendMessage] Existing conversation:', conversation ? conversation.id : 'none');
 
-        // HYBRID LOGIC: Check intro message rules
-        // HYBRID LOGIC: Check intro message rules
+        // HYBRID MONETIZATION LOGIC
+        // - Matched users (mutual like): chat free forever (that's the goal of the app).
+        // - Premium users: unlimited free messaging with anyone.
+        // - Everyone else: a number of free icebreaker messages per conversation,
+        //   then pay-per-message in diamonds. Insufficient balance surfaces an
+        //   INSUFFICIENT_DIAMONDS error so the client can prompt a top-up.
+        let diamondsSpent = 0;
+        let diamondBalance: number | null = null;
+
         if (!areMutualLikes) {
-            // Check if sender is premium
             const sender = await prisma.user.findUnique({
                 where: { id: senderId },
                 select: { isPremium: true, diamonds: true },
             });
 
-            // If premium, allow unlimited (Bypass check)
             if (sender?.isPremium) {
-                console.log('[sendMessage] Premium user - bypassing limits');
+                console.log('[sendMessage] Premium user - free messaging');
             } else {
-                // If regular user, check how many messages THEY have sent in this conversation
-                if (conversation) {
-                    const sentCount = await prisma.message.count({
-                        where: {
-                            conversationId: conversation.id,
-                            senderId: senderId,
-                        },
-                    });
+                // How many messages has THIS user already sent in this conversation?
+                const sentCount = conversation
+                    ? await prisma.message.count({
+                          where: {
+                              conversationId: conversation.id,
+                              senderId: senderId,
+                          },
+                      })
+                    : 0;
 
-                    // Allow 1 message (Icebreaker) per user
-                    // Note: Future "diamonds" logic will go here.
-                    if (sentCount >= 1) {
-                        console.log('[sendMessage] Blocking - user already sent icebreaker');
-                        throw new Error('You need to match with this user to continue chatting');
-                    }
+                if (sentCount < DIAMOND_COSTS.FREE_ICEBREAKERS) {
+                    console.log('[sendMessage] Free icebreaker message', sentCount + 1, 'of', DIAMOND_COSTS.FREE_ICEBREAKERS);
+                } else {
+                    // Charge diamonds. debitDiamonds is atomic and throws
+                    // InsufficientDiamondsError when the balance is too low.
+                    diamondBalance = await debitDiamonds(senderId, DIAMOND_COSTS.MESSAGE);
+                    diamondsSpent = DIAMOND_COSTS.MESSAGE;
+                    console.log('[sendMessage] Charged', diamondsSpent, 'diamonds. New balance:', diamondBalance);
                 }
-                console.log('[sendMessage] Allowing icebreaker message');
             }
         }
 
@@ -180,7 +189,7 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
             console.warn('Socket emit failed:', error);
         }
 
-        return message;
+        return { message, diamondsSpent, diamondBalance };
     } catch (error) {
         console.error('[sendMessage] ERROR:', error);
         throw error;

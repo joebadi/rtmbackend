@@ -51,6 +51,7 @@ model User {
   viewedBy           ProfileView[]     @relation("Viewed")
   notifications      Notification[]
   sessions           Session[]
+  liveBookings       LiveEventBooking[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -540,4 +541,110 @@ model AuditLog {
   @@index([adminId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ============================================
+// LIVE DATES
+// ============================================
+
+model LiveEvent {
+  id                     String          @id @default(uuid())
+  title                  String
+  description            String?
+  type                   LiveEventType
+  status                 LiveEventStatus @default(DRAFT)
+
+  // Scheduling
+  startsAt               DateTime
+  bookingOpensAt         DateTime
+  recurrence             String?         // null = one-off, else e.g. "FRI 20:00"
+
+  // Rules
+  capacity               Int
+  diamondCost            Int             @default(0)
+  roundSeconds           Int             @default(180)
+  maxRounds              Int             @default(8)
+  minProfileCompleteness Int             @default(0)
+  requireVerified        Boolean         @default(false)
+  genderBalanced         Boolean         @default(true)
+  freeUnveils            Int             @default(3)   // Blind Date only
+  unveilCost             Int             @default(20)  // diamonds per extra unveil
+
+  coverImageUrl          String?
+  createdByAdmin         String?
+
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  bookings               LiveEventBooking[]
+  pairings               LivePairing[]
+
+  @@index([status, startsAt])
+  @@map("live_events")
+}
+
+enum LiveEventType {
+  SPEED_DATING
+  BLIND_DATE
+}
+
+enum LiveEventStatus {
+  DRAFT
+  SCHEDULED
+  BOOKING_OPEN
+  LOBBY
+  LIVE
+  POST_EVENT
+  COMPLETED
+  CANCELLED
+}
+
+model LiveEventBooking {
+  id            String        @id @default(uuid())
+  eventId       String
+  event         LiveEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status        BookingStatus @default(BOOKED)
+  diamondsPaid  Int           @default(0)
+  joinedLobbyAt DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@unique([eventId, userId])
+  @@index([eventId, status])
+  @@map("live_event_bookings")
+}
+
+enum BookingStatus {
+  BOOKED
+  WAITLISTED
+  ATTENDED
+  NO_SHOW
+  CANCELLED
+}
+
+model LivePairing {
+  id          String    @id @default(uuid())
+  eventId     String
+  event       LiveEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roundNumber Int
+  userAId     String
+  userBId     String
+  channelName String
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  // Private interest signals (never exposed unless mutual)
+  aInterested Boolean?
+  bInterested Boolean?
+  aRating     Int?
+  bRating     Int?
+  isMatch     Boolean   @default(false)
+
+  // Blind Date unveils
+  aUnveiledB  Boolean   @default(false)
+  bUnveiledA  Boolean   @default(false)
+
+  @@index([eventId, roundNumber])
+  @@map("live_pairings")
 }
