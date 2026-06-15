@@ -17,6 +17,8 @@ export const matchPreferencesSchema = z.object({
     locationCountry: z.string().optional(),
     locationStates: z.array(z.string()).default([]),
     locationTribes: z.array(z.string()).default([]),
+    // Preferred state-of-origin -> tribes, e.g. { "Edo": ["Esan"], "Delta": ["All"] }
+    tribePreferences: z.record(z.string(), z.array(z.string())).optional(),
     locationIsDealBreaker: z.boolean().default(false),
 
     // Religion

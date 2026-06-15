@@ -151,14 +151,22 @@ export const getCompatibility = async (req: Request, res: Response, next: NextFu
 
         const { targetUserId } = req.params;
 
-        const compatibility = await matchService.calculateCompatibility(
-            userId,
-            targetUserId as string
-        );
+        // Two directions:
+        //  - theyMatchYou: how well the target fits THIS user's preferences (headline %)
+        //  - youMatchThem: how well THIS user fits the target's preferences (reciprocal %)
+        const [theyMatchYou, youMatchThem] = await Promise.all([
+            matchService.calculateCompatibility(userId, targetUserId as string),
+            matchService.calculateCompatibility(targetUserId as string, userId),
+        ]);
 
         res.status(200).json({
             success: true,
-            data: { compatibility },
+            data: {
+                theyMatchYou,
+                youMatchThem,
+                // Backwards-compatible alias for any existing caller.
+                compatibility: theyMatchYou,
+            },
         });
     } catch (error) {
         next(error);

@@ -221,6 +221,9 @@ model MatchPreferences {
   locationCountry         String?
   locationStates          String[]
   locationTribes          String[]
+  // Preferred state-of-origin -> tribes map, e.g. {"Edo":["Esan"],"Delta":["All"]}.
+  // locationTribes is kept as a derived flat list for backward compatibility.
+  tribePreferences        Json?
   locationIsDealBreaker   Boolean  @default(false)
 
   religion                String[]

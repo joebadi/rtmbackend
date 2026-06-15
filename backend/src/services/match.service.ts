@@ -51,146 +51,190 @@ export const getMatchPreferences = async (userId: string) => {
 };
 
 /**
- * Calculate compatibility score between two users
+ * Parse the tribePreferences JSON ({ "Edo": ["Esan"], "Delta": ["All"] }) defensively.
+ */
+const parseTribePreferences = (raw: unknown): Record<string, string[]> => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [state, tribes] of Object.entries(raw as Record<string, unknown>)) {
+        if (Array.isArray(tribes)) {
+            out[state] = tribes.filter((t): t is string => typeof t === 'string');
+        }
+    }
+    return out;
+};
+
+/**
+ * Does a candidate's state-of-origin / tribe satisfy a state->tribes preference map?
+ * Matches when the candidate's stateOfOrigin is a preferred key AND that state's list
+ * either contains "All" or contains the candidate's tribe.
+ */
+const tribeMatches = (
+    prefs: Record<string, string[]>,
+    stateOfOrigin?: string | null,
+    tribe?: string | null
+): boolean => {
+    if (!stateOfOrigin) return false;
+    const wanted = prefs[stateOfOrigin];
+    if (!wanted || wanted.length === 0) return false;
+    if (wanted.includes('All')) return true;
+    return tribe != null && wanted.includes(tribe);
+};
+
+/**
+ * Calculate how well `targetUserId`'s profile satisfies `userId`'s stated preferences.
+ * Returns a normalized 0-100 percentage over only the criteria the preference-owner
+ * actually set, the list of matched field keys, and any unmet deal-breakers.
  */
 export const calculateCompatibility = async (
     userId: string,
     targetUserId: string
 ): Promise<{ score: number; matches: string[]; dealBreakers: string[] }> => {
-    // Get both users' profiles and preferences
-    const [userProfile, targetProfile, userPrefs] = await Promise.all([
-        prisma.profile.findUnique({ where: { userId } }),
+    // We score userId's preferences against targetUserId's profile.
+    const [targetProfile, userPrefs] = await Promise.all([
         prisma.profile.findUnique({ where: { userId: targetUserId } }),
         prisma.matchPreferences.findUnique({ where: { userId } }),
     ]);
 
-    if (!userProfile || !targetProfile) {
+    if (!targetProfile) {
         throw new Error('Profile not found');
     }
 
-    let score = 0;
     const matches: string[] = [];
     const dealBreakers: string[] = [];
 
+    // No preferences set -> neutral baseline.
     if (!userPrefs) {
-        return { score: 50, matches: [], dealBreakers: [] }; // Default score if no preferences
+        return { score: 50, matches: [], dealBreakers: [] };
     }
 
-    // Age compatibility
-    if (targetProfile.age >= userPrefs.ageMin && targetProfile.age <= userPrefs.ageMax) {
-        score += 15;
-        matches.push('age');
-    } else if (userPrefs.ageIsDealBreaker) {
-        dealBreakers.push('age');
+    let earned = 0;
+    let maxPossible = 0;
+
+    // Helper: register one criterion that the user actually expressed a preference on.
+    const evaluate = (
+        key: string,
+        weight: number,
+        satisfied: boolean,
+        isDealBreaker: boolean
+    ): boolean => {
+        maxPossible += weight;
+        if (satisfied) {
+            earned += weight;
+            matches.push(key);
+            return true;
+        }
+        if (isDealBreaker) dealBreakers.push(key);
+        return false;
+    };
+
+    // Age (always an active criterion).
+    evaluate(
+        'age',
+        15,
+        targetProfile.age >= userPrefs.ageMin && targetProfile.age <= userPrefs.ageMax,
+        userPrefs.ageIsDealBreaker
+    );
+
+    // Location (preferred residence state).
+    if (userPrefs.locationStates.length > 0) {
+        evaluate(
+            'location',
+            10,
+            !!targetProfile.state && userPrefs.locationStates.includes(targetProfile.state),
+            userPrefs.locationIsDealBreaker
+        );
+    }
+
+    // Tribe (preferred state-of-origin -> tribes).
+    const tribePrefs = parseTribePreferences(userPrefs.tribePreferences);
+    if (Object.keys(tribePrefs).length > 0) {
+        evaluate(
+            'tribe',
+            10,
+            tribeMatches(tribePrefs, targetProfile.stateOfOrigin, targetProfile.tribe),
+            // Tribe rides on the location deal-breaker toggle for now.
+            userPrefs.locationIsDealBreaker
+        );
+    }
+
+    // Religion.
+    if (userPrefs.religion.length > 0) {
+        evaluate(
+            'religion',
+            15,
+            !!targetProfile.religion && userPrefs.religion.includes(targetProfile.religion),
+            userPrefs.religionIsDealBreaker
+        );
+    }
+
+    // Zodiac.
+    if (userPrefs.zodiac.length > 0) {
+        evaluate(
+            'zodiac',
+            10,
+            userPrefs.zodiac.includes(targetProfile.zodiacSign),
+            userPrefs.zodiacIsDealBreaker
+        );
+    }
+
+    // Genotype.
+    if (userPrefs.genotype.length > 0) {
+        evaluate(
+            'genotype',
+            10,
+            !!targetProfile.genotype && userPrefs.genotype.includes(targetProfile.genotype),
+            userPrefs.genotypeIsDealBreaker
+        );
+    }
+
+    // Blood group.
+    if (userPrefs.bloodGroup.length > 0) {
+        evaluate(
+            'bloodGroup',
+            5,
+            !!targetProfile.bloodGroup && userPrefs.bloodGroup.includes(targetProfile.bloodGroup),
+            userPrefs.bloodGroupIsDealBreaker
+        );
+    }
+
+    // Body type.
+    if (userPrefs.bodyType.length > 0) {
+        evaluate(
+            'bodyType',
+            10,
+            !!targetProfile.bodyType && userPrefs.bodyType.includes(targetProfile.bodyType),
+            userPrefs.bodyTypeIsDealBreaker
+        );
+    }
+
+    // Tattoos.
+    if (userPrefs.tattoosAcceptable !== null && userPrefs.tattoosAcceptable !== undefined) {
+        evaluate(
+            'tattoos',
+            5,
+            userPrefs.tattoosAcceptable === targetProfile.hasTattoos,
+            userPrefs.tattoosIsDealBreaker
+        );
+    }
+
+    // Piercings.
+    if (userPrefs.piercingsAcceptable !== null && userPrefs.piercingsAcceptable !== undefined) {
+        evaluate(
+            'piercings',
+            5,
+            userPrefs.piercingsAcceptable === targetProfile.hasPiercings,
+            userPrefs.piercingsIsDealBreaker
+        );
+    }
+
+    // An unmet deal-breaker zeroes the score outright.
+    if (dealBreakers.length > 0) {
         return { score: 0, matches, dealBreakers };
     }
 
-    // Location compatibility
-    if (userPrefs.locationStates.length > 0) {
-        if (targetProfile.state && userPrefs.locationStates.includes(targetProfile.state)) {
-            score += 10;
-            matches.push('location');
-        } else if (userPrefs.locationIsDealBreaker) {
-            dealBreakers.push('location');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Religion compatibility
-    if (userPrefs.religion.length > 0) {
-        if (targetProfile.religion && userPrefs.religion.includes(targetProfile.religion)) {
-            score += 15;
-            matches.push('religion');
-        } else if (userPrefs.religionIsDealBreaker) {
-            dealBreakers.push('religion');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Zodiac compatibility
-    if (userPrefs.zodiac.length > 0) {
-        if (userPrefs.zodiac.includes(targetProfile.zodiacSign)) {
-            score += 10;
-            matches.push('zodiac');
-        } else if (userPrefs.zodiacIsDealBreaker) {
-            dealBreakers.push('zodiac');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Genotype compatibility
-    if (userPrefs.genotype.length > 0) {
-        if (targetProfile.genotype && userPrefs.genotype.includes(targetProfile.genotype)) {
-            score += 10;
-            matches.push('genotype');
-        } else if (userPrefs.genotypeIsDealBreaker) {
-            dealBreakers.push('genotype');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Blood group compatibility
-    if (userPrefs.bloodGroup.length > 0) {
-        if (targetProfile.bloodGroup && userPrefs.bloodGroup.includes(targetProfile.bloodGroup)) {
-            score += 5;
-            matches.push('bloodGroup');
-        } else if (userPrefs.bloodGroupIsDealBreaker) {
-            dealBreakers.push('bloodGroup');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Body type compatibility
-    if (userPrefs.bodyType.length > 0) {
-        if (targetProfile.bodyType && userPrefs.bodyType.includes(targetProfile.bodyType)) {
-            score += 10;
-            matches.push('bodyType');
-        } else if (userPrefs.bodyTypeIsDealBreaker) {
-            dealBreakers.push('bodyType');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Tattoos compatibility
-    if (userPrefs.tattoosAcceptable !== null && userPrefs.tattoosAcceptable !== undefined) {
-        if (userPrefs.tattoosAcceptable === targetProfile.hasTattoos) {
-            score += 5;
-            matches.push('tattoos');
-        } else if (userPrefs.tattoosIsDealBreaker) {
-            dealBreakers.push('tattoos');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Piercings compatibility
-    if (userPrefs.piercingsAcceptable !== null && userPrefs.piercingsAcceptable !== undefined) {
-        if (userPrefs.piercingsAcceptable === targetProfile.hasPiercings) {
-            score += 5;
-            matches.push('piercings');
-        } else if (userPrefs.piercingsIsDealBreaker) {
-            dealBreakers.push('piercings');
-            return { score: 0, matches, dealBreakers };
-        }
-    }
-
-    // Education level match (bonus points)
-    if (userProfile.education && targetProfile.education) {
-        if (userProfile.education === targetProfile.education) {
-            score += 10;
-            matches.push('education');
-        }
-    }
-
-    // Lifestyle compatibility (bonus points)
-    if (userProfile.drinkingStatus && targetProfile.drinkingStatus) {
-        if (userProfile.drinkingStatus === targetProfile.drinkingStatus) {
-            score += 5;
-            matches.push('lifestyle');
-        }
-    }
-
-    // Cap score at 100
-    score = Math.min(score, 100);
+    // Normalize to a true percentage over the criteria actually expressed.
+    const score = maxPossible > 0 ? Math.round((earned / maxPossible) * 100) : 50;
 
     return { score, matches, dealBreakers };
 };
