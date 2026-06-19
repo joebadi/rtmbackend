@@ -47,6 +47,8 @@ model User {
   transactions       Transaction[]
   verificationReq    VerificationRequest?
   savedProfiles      SavedProfile[]
+  hiddenProfiles     HiddenProfile[]   @relation("HiddenBy")
+  hiddenByOthers     HiddenProfile[]   @relation("HiddenTarget")
   profileViews       ProfileView[]     @relation("Viewer")
   viewedBy           ProfileView[]     @relation("Viewed")
   notifications      Notification[]
@@ -342,6 +344,20 @@ model SavedProfile {
   @@unique([userId, savedUserId])
   @@index([userId])
   @@map("saved_profiles")
+}
+
+// Profiles a user has chosen to hide from their own feed ("not interested").
+model HiddenProfile {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation("HiddenBy", fields: [userId], references: [id], onDelete: Cascade)
+  hiddenUserId String
+  hiddenUser   User     @relation("HiddenTarget", fields: [hiddenUserId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, hiddenUserId])
+  @@index([userId])
+  @@map("hidden_profiles")
 }
 
 model ProfileView {

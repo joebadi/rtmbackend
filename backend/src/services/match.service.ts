@@ -1,5 +1,6 @@
 import { prisma } from '../server';
 import { Prisma } from '@prisma/client';
+import { getExcludedUserIds } from './relationship.service';
 import {
     MatchPreferencesInput,
     FilterMatchesInput,
@@ -255,10 +256,11 @@ export const getMatches = async (userId: string, limit: number = 20, offset: num
 
     // Get opposite gender
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+    const excluded = await getExcludedUserIds(userId);
 
     // Build where clause based on preferences
     const where: Prisma.ProfileWhereInput = {
-        userId: { not: userId },
+        userId: { not: userId, notIn: excluded },
         gender: targetGender,
         isActive: true,
         isBanned: false,
@@ -432,9 +434,10 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
     console.log(`Debug: User gender: ${userProfile.gender}`);
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+    const excluded = await getExcludedUserIds(userId);
 
     const whereClause = {
-        userId: { not: userId },
+        userId: { not: userId, notIn: excluded },
         gender: targetGender as 'MALE' | 'FEMALE', // Re-enabled for proper matching
         isActive: true,
         isBanned: false,
@@ -498,9 +501,10 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
     const userPrefs = await prisma.matchPreferences.findUnique({ where: { userId } });
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+    const excluded = await getExcludedUserIds(userId);
 
     const where: Prisma.ProfileWhereInput = {
-        userId: { not: userId },
+        userId: { not: userId, notIn: excluded },
         gender: targetGender as 'MALE' | 'FEMALE',
         isActive: true,
         isBanned: false,
