@@ -1,6 +1,7 @@
 import { prisma } from '../server';
 import { getIO } from './socket.service';
 import { generateRtcToken, uidFromUserId } from './agora.service';
+import { debitDiamonds, getBalance } from './diamond.service';
 
 /**
  * Live Dates realtime engine — the round-robin "matchmaker".
@@ -338,6 +339,160 @@ export const ratePairing = async (userId: string, pairingId: string, rating: num
         data: isA ? { aRating: rating } : { bRating: rating },
     });
     return { rated: true };
+};
+
+// ============================================
+// BLIND DATE UNVEILS + RESULTS
+// ============================================
+
+/**
+ * How many paid/free unveils a user has spent in an event.
+ * Matched pairings reveal for free and are excluded, so they never eat into
+ * the user's free-unveil budget.
+ */
+const countUserUnveils = async (eventId: string, userId: string): Promise<number> => {
+    const [asA, asB] = await Promise.all([
+        prisma.livePairing.count({
+            where: { eventId, userAId: userId, aUnveiledB: true, isMatch: false },
+        }),
+        prisma.livePairing.count({
+            where: { eventId, userBId: userId, bUnveiledA: true, isMatch: false },
+        }),
+    ]);
+    return asA + asB;
+};
+
+/**
+ * Reveal a blind-date partner's identity for the requesting user.
+ *
+ * The first `event.freeUnveils` are free; further unveils cost `event.unveilCost`
+ * diamonds. A mutual match is always revealed for free and never counts against
+ * the budget. Idempotent — re-unveiling the same partner is free.
+ */
+export const unveilPartner = async (userId: string, pairingId: string) => {
+    const pairing = await prisma.livePairing.findUnique({ where: { id: pairingId } });
+    if (!pairing) throw new Error('Pairing not found');
+
+    const isA = pairing.userAId === userId;
+    const isB = pairing.userBId === userId;
+    if (!isA && !isB) throw new Error('You are not part of this pairing');
+
+    const event = await prisma.liveEvent.findUnique({ where: { id: pairing.eventId } });
+    if (!event) throw new Error('Event not found');
+
+    const partnerId = isA ? pairing.userBId : pairing.userAId;
+    const alreadyUnveiled = isA ? pairing.aUnveiledB : pairing.bUnveiledA;
+
+    // Already revealed → idempotent, no charge.
+    if (alreadyUnveiled || pairing.isMatch || event.type !== 'BLIND_DATE') {
+        const card = await partnerCard(partnerId, false);
+        if (!alreadyUnveiled) {
+            await prisma.livePairing.update({
+                where: { id: pairingId },
+                data: isA ? { aUnveiledB: true } : { bUnveiledA: true },
+            });
+        }
+        const used = await countUserUnveils(event.id, userId);
+        return {
+            partner: card,
+            charged: 0,
+            free: true,
+            diamondBalance: await getBalance(userId),
+            freeUnveils: event.freeUnveils,
+            unveilCost: event.unveilCost,
+            unveilsUsed: used,
+            unveilsRemaining: Math.max(0, event.freeUnveils - used),
+        };
+    }
+
+    const usedBefore = await countUserUnveils(event.id, userId);
+    const isFree = usedBefore < event.freeUnveils || event.unveilCost <= 0;
+
+    let charged = 0;
+    let balance: number;
+    if (isFree) {
+        balance = await getBalance(userId);
+    } else {
+        balance = await debitDiamonds(userId, event.unveilCost); // throws InsufficientDiamondsError
+        charged = event.unveilCost;
+    }
+
+    await prisma.livePairing.update({
+        where: { id: pairingId },
+        data: isA ? { aUnveiledB: true } : { bUnveiledA: true },
+    });
+
+    const card = await partnerCard(partnerId, false);
+    const usedAfter = usedBefore + 1;
+    return {
+        partner: card,
+        charged,
+        free: isFree,
+        diamondBalance: balance,
+        freeUnveils: event.freeUnveils,
+        unveilCost: event.unveilCost,
+        unveilsUsed: usedAfter,
+        unveilsRemaining: Math.max(0, event.freeUnveils - usedAfter),
+    };
+};
+
+/**
+ * Post-event results for a user: everyone they met, who they matched with,
+ * their private interest/rating, and which partners are revealed. Blind-date
+ * partners stay hidden unless matched or unveiled.
+ */
+export const getEventResults = async (userId: string, eventId: string) => {
+    const event = await prisma.liveEvent.findUnique({ where: { id: eventId } });
+    if (!event) throw new Error('Event not found');
+
+    const booking = await prisma.liveEventBooking.findUnique({
+        where: { eventId_userId: { eventId, userId } },
+    });
+    if (!booking) throw new Error('You did not attend this event');
+
+    const blind = event.type === 'BLIND_DATE';
+    const pairings = await prisma.livePairing.findMany({
+        where: { eventId, OR: [{ userAId: userId }, { userBId: userId }] },
+        orderBy: { roundNumber: 'asc' },
+    });
+
+    const usedUnveils = await countUserUnveils(eventId, userId);
+
+    const results = await Promise.all(
+        pairings.map(async (p) => {
+            const isA = p.userAId === userId;
+            const partnerId = isA ? p.userBId : p.userAId;
+            const iUnveiled = isA ? p.aUnveiledB : p.bUnveiledA;
+            const myInterest = isA ? p.aInterested : p.bInterested;
+            const myRating = isA ? p.aRating : p.bRating;
+            const revealed = !blind || p.isMatch || iUnveiled === true;
+            const card = await partnerCard(partnerId, !revealed);
+            return {
+                pairingId: p.id,
+                roundNumber: p.roundNumber,
+                partner: card, // photoUrl null when not revealed
+                isMatch: p.isMatch,
+                myInterest: myInterest ?? null,
+                myRating: myRating ?? null,
+                unveiled: iUnveiled === true,
+                revealed,
+                canUnveil: blind && !revealed,
+            };
+        }),
+    );
+
+    return {
+        event: { id: event.id, title: event.title, type: event.type },
+        blind,
+        matches: results.filter((r) => r.isMatch).length,
+        unveils: {
+            used: usedUnveils,
+            free: event.freeUnveils,
+            remaining: Math.max(0, event.freeUnveils - usedUnveils),
+            cost: event.unveilCost,
+        },
+        pairings: results,
+    };
 };
 
 /** Create a mutual match (likes both ways) + notify both users. */

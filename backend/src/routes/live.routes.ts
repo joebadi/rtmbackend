@@ -54,6 +54,18 @@ router.post('/events/:id/lobby', authenticate, liveController.joinLobby);
 router.get('/events/:id/state', authenticate, liveController.getEventState);
 
 /**
+ * @route   GET /api/live/events/:id/results
+ * @desc    Post-event results: who I met, matches, ratings, unveil state
+ */
+router.get('/events/:id/results', authenticate, liveController.getEventResults);
+
+/**
+ * @route   POST /api/live/pairings/:pairingId/unveil
+ * @desc    Reveal a blind-date partner (free quota then diamonds)
+ */
+router.post('/pairings/:pairingId/unveil', authenticate, liveController.unveilPartner);
+
+/**
  * @route   POST /api/live/pairings/:pairingId/token
  * @desc    Agora token bound to my active pairing's channel
  */

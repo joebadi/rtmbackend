@@ -16,7 +16,7 @@ const handleError = (res: Response, error: any) => {
         return res.status(402).json({
             success: false,
             code: 'INSUFFICIENT_DIAMONDS',
-            message: 'You need more diamonds to book this event',
+            message: 'You need more diamonds for this',
             data: { required: error.required, balance: error.balance },
         });
     }
@@ -162,6 +162,30 @@ export const ratePairing = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'rating must be 1-5' });
         }
         const result = await liveEngine.ratePairing(userId, req.params.pairingId as string, rating);
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        handleError(res, error);
+    }
+};
+
+/** Reveal a blind-date partner (free up to the event's quota, then diamonds). */
+export const unveilPartner = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) return unauthorized(res);
+        const result = await liveEngine.unveilPartner(userId, req.params.pairingId as string);
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        handleError(res, error);
+    }
+};
+
+/** Post-event results: matches, ratings, and unveil state. */
+export const getEventResults = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) return unauthorized(res);
+        const result = await liveEngine.getEventResults(userId, req.params.id as string);
         res.status(200).json({ success: true, data: result });
     } catch (error) {
         handleError(res, error);
