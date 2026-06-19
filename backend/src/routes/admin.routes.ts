@@ -127,6 +127,24 @@ router.get('/photos/unverified', authenticateAdmin, adminController.getUnverifie
 router.post('/photos/verify', authenticateAdmin, adminController.verifyPhoto);
 
 // ============================================
+// ID VERIFICATION REVIEW
+// ============================================
+
+/**
+ * @route   GET /api/admin/verifications
+ * @desc    List ID verification requests (default PENDING)
+ * @access  Admin+
+ */
+router.get('/verifications', authenticateAdmin, adminController.getVerificationRequests);
+
+/**
+ * @route   POST /api/admin/verifications/review
+ * @desc    Approve/reject a verification request
+ * @access  Admin+
+ */
+router.post('/verifications/review', authenticateAdmin, adminController.reviewVerification);
+
+// ============================================
 // ANALYTICS & DASHBOARD
 // ============================================
 

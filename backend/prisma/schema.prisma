@@ -161,6 +161,9 @@ model Profile {
   emailNotifications Boolean   @default(true)
   smsNotifications   Boolean   @default(false)
 
+  // Verification badge (granted on approved ID verification)
+  isVerified         Boolean   @default(false)
+
   // Stats
   profileCompleteness Int      @default(0)
   viewCount          Int       @default(0)

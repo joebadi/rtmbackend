@@ -401,3 +401,41 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
         next(error);
     }
 };
+
+// ============================================
+// ID VERIFICATION REVIEW
+// ============================================
+
+export const getVerificationRequests = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const status = (req.query.status as string) || 'PENDING';
+        const limit = parseInt(req.query.limit as string) || 20;
+        const offset = parseInt(req.query.offset as string) || 0;
+        const result = await adminService.getVerificationRequests(status, limit, offset);
+        res.status(200).json({ success: true, data: result });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const reviewVerification = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const adminId = req.admin?.adminId;
+        const { requestId, approve, notes } = req.body;
+        if (!requestId || typeof approve !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'requestId and approve (boolean) are required',
+            });
+        }
+        const result = await adminService.reviewVerification(
+            adminId as string,
+            requestId,
+            approve,
+            notes
+        );
+        res.status(200).json({ success: true, message: result.message });
+    } catch (error) {
+        next(error);
+    }
+};

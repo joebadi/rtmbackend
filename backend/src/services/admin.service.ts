@@ -728,3 +728,107 @@ export const getAuditLogs = async (limit: number = 50, offset: number = 0) => {
 
     return { logs, total };
 };
+
+// ============================================
+// ID VERIFICATION REVIEW
+// ============================================
+
+export const getVerificationRequests = async (
+    status: string = 'PENDING',
+    limit: number = 20,
+    offset: number = 0
+) => {
+    const where =
+        status === 'ALL'
+            ? {}
+            : { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' };
+
+    const [requests, total] = await Promise.all([
+        prisma.verificationRequest.findMany({
+            where,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        phoneNumber: true,
+                        profile: {
+                            select: {
+                                firstName: true,
+                                lastName: true,
+                                isVerified: true,
+                                photos: {
+                                    where: { isPrimary: true },
+                                    take: 1,
+                                    select: { url: true },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+            skip: offset,
+        }),
+        prisma.verificationRequest.count({ where }),
+    ]);
+
+    return { requests, total };
+};
+
+export const reviewVerification = async (
+    adminId: string,
+    requestId: string,
+    approve: boolean,
+    notes?: string
+) => {
+    const request = await prisma.verificationRequest.findUnique({
+        where: { id: requestId },
+    });
+    if (!request) {
+        throw new Error('Verification request not found');
+    }
+
+    const status = approve ? 'APPROVED' : 'REJECTED';
+
+    await prisma.verificationRequest.update({
+        where: { id: requestId },
+        data: {
+            status,
+            reviewedBy: adminId,
+            reviewedAt: new Date(),
+            reviewNotes: notes || null,
+        },
+    });
+
+    if (approve) {
+        await prisma.profile.updateMany({
+            where: { userId: request.userId },
+            data: { isVerified: true },
+        });
+    }
+
+    await prisma.notification.create({
+        data: {
+            userId: request.userId,
+            type: approve ? 'VERIFICATION_APPROVED' : 'VERIFICATION_REJECTED',
+            title: approve ? 'You are verified' : 'Verification not approved',
+            body: approve
+                ? 'Your profile now carries the verified badge.'
+                : notes || 'Your documents could not be verified. Please re-submit.',
+        },
+    });
+
+    await prisma.auditLog.create({
+        data: {
+            adminId,
+            action: approve ? 'APPROVE_VERIFICATION' : 'REJECT_VERIFICATION',
+            targetType: 'VerificationRequest',
+            targetId: requestId,
+            details: { notes },
+        },
+    });
+
+    return { message: `Verification ${status.toLowerCase()}` };
+};
