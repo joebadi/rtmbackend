@@ -83,6 +83,86 @@ const tribeMatches = (
 };
 
 /**
+ * Coupled location/origin preference blocks.
+ *
+ *   block = residence country + (optional) residence states + (optional) origins
+ *   origin = nationality country + (optional, Nigeria-only) state-of-origin -> tribes
+ *
+ * Blocks are OR'd; within a block residence AND origin are required; within a block's
+ * origins it's OR across nationalities. A profile satisfies "location" if it falls into
+ * ANY block. Used in place of the legacy locationStates + tribePreferences scoring when
+ * present.
+ */
+interface OriginRule {
+    country: string;
+    stateTribes: Record<string, string[]>;
+}
+interface LocationBlock {
+    residenceCountry: string;
+    residenceStates: string[];
+    origins: OriginRule[];
+}
+type ProfileLocation = {
+    country: string | null;
+    state: string | null;
+    ethnicityCountry: string | null;
+    stateOfOrigin: string | null;
+    tribe: string | null;
+};
+
+const parseLocationPreferences = (raw: unknown): LocationBlock[] => {
+    if (!Array.isArray(raw)) return [];
+    const blocks: LocationBlock[] = [];
+    for (const b of raw) {
+        if (!b || typeof b !== 'object') continue;
+        const rec = b as Record<string, unknown>;
+        const residenceCountry =
+            typeof rec.residenceCountry === 'string' ? rec.residenceCountry : '';
+        if (!residenceCountry) continue;
+        const residenceStates = Array.isArray(rec.residenceStates)
+            ? rec.residenceStates.filter((s): s is string => typeof s === 'string')
+            : [];
+        const origins: OriginRule[] = [];
+        if (Array.isArray(rec.origins)) {
+            for (const o of rec.origins) {
+                if (!o || typeof o !== 'object') continue;
+                const orec = o as Record<string, unknown>;
+                const country = typeof orec.country === 'string' ? orec.country : '';
+                if (!country) continue;
+                origins.push({
+                    country,
+                    stateTribes: parseTribePreferences(orec.stateTribes),
+                });
+            }
+        }
+        blocks.push({ residenceCountry, residenceStates, origins });
+    }
+    return blocks;
+};
+
+const originMatches = (origin: OriginRule, profile: ProfileLocation): boolean => {
+    if (!profile.ethnicityCountry || profile.ethnicityCountry !== origin.country) {
+        return false;
+    }
+    if (Object.keys(origin.stateTribes).length === 0) return true;
+    return tribeMatches(origin.stateTribes, profile.stateOfOrigin, profile.tribe);
+};
+
+const blockMatches = (block: LocationBlock, profile: ProfileLocation): boolean => {
+    if (!profile.country || profile.country !== block.residenceCountry) return false;
+    if (
+        block.residenceStates.length > 0 &&
+        (!profile.state || !block.residenceStates.includes(profile.state))
+    ) {
+        return false;
+    }
+    if (block.origins.length > 0 && !block.origins.some((o) => originMatches(o, profile))) {
+        return false;
+    }
+    return true;
+};
+
+/**
  * Calculate how well `targetUserId`'s profile satisfies `userId`'s stated preferences.
  * Returns a normalized 0-100 percentage over only the criteria the preference-owner
  * actually set, the list of matched field keys, and any unmet deal-breakers.
@@ -137,26 +217,39 @@ export const calculateCompatibility = async (
         userPrefs.ageIsDealBreaker
     );
 
-    // Location (preferred residence state).
-    if (userPrefs.locationStates.length > 0) {
+    // Location + origin. Prefer the coupled-block model when present; otherwise fall
+    // back to the legacy residence-states + tribePreferences scoring.
+    const locationBlocks = parseLocationPreferences(userPrefs.locationPreferences);
+    if (locationBlocks.length > 0) {
+        // One combined criterion (residence AND origin) worth the legacy location+tribe weight.
         evaluate(
             'location',
-            10,
-            !!targetProfile.state && userPrefs.locationStates.includes(targetProfile.state),
+            20,
+            locationBlocks.some((b) => blockMatches(b, targetProfile)),
             userPrefs.locationIsDealBreaker
         );
-    }
+    } else {
+        // Legacy: preferred residence state.
+        if (userPrefs.locationStates.length > 0) {
+            evaluate(
+                'location',
+                10,
+                !!targetProfile.state && userPrefs.locationStates.includes(targetProfile.state),
+                userPrefs.locationIsDealBreaker
+            );
+        }
 
-    // Tribe (preferred state-of-origin -> tribes).
-    const tribePrefs = parseTribePreferences(userPrefs.tribePreferences);
-    if (Object.keys(tribePrefs).length > 0) {
-        evaluate(
-            'tribe',
-            10,
-            tribeMatches(tribePrefs, targetProfile.stateOfOrigin, targetProfile.tribe),
-            // Tribe rides on the location deal-breaker toggle for now.
-            userPrefs.locationIsDealBreaker
-        );
+        // Legacy: preferred state-of-origin -> tribes.
+        const tribePrefs = parseTribePreferences(userPrefs.tribePreferences);
+        if (Object.keys(tribePrefs).length > 0) {
+            evaluate(
+                'tribe',
+                10,
+                tribeMatches(tribePrefs, targetProfile.stateOfOrigin, targetProfile.tribe),
+                // Tribe rides on the location deal-breaker toggle for now.
+                userPrefs.locationIsDealBreaker
+            );
+        }
     }
 
     // Religion.
@@ -277,7 +370,13 @@ export const getMatches = async (userId: string, limit: number = 20, offset: num
         };
 
         // Apply location filter
-        if (userPrefs.locationStates.length > 0) {
+        // Only hard-narrow by residence state under the legacy model. With coupled
+        // location blocks the residence pool spans countries/"anywhere" rules, so we
+        // leave location to compatibility scoring to avoid emptying the feed.
+        if (
+            parseLocationPreferences(userPrefs.locationPreferences).length === 0 &&
+            userPrefs.locationStates.length > 0
+        ) {
             where.state = { in: userPrefs.locationStates };
         }
 
@@ -521,7 +620,13 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
         };
 
         // Apply location filter if specified
-        if (userPrefs.locationStates.length > 0) {
+        // Only hard-narrow by residence state under the legacy model. With coupled
+        // location blocks the residence pool spans countries/"anywhere" rules, so we
+        // leave location to compatibility scoring to avoid emptying the feed.
+        if (
+            parseLocationPreferences(userPrefs.locationPreferences).length === 0 &&
+            userPrefs.locationStates.length > 0
+        ) {
             where.state = { in: userPrefs.locationStates };
         }
 

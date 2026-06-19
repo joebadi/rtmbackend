@@ -229,6 +229,11 @@ model MatchPreferences {
   // Preferred state-of-origin -> tribes map, e.g. {"Edo":["Esan"],"Delta":["All"]}.
   // locationTribes is kept as a derived flat list for backward compatibility.
   tribePreferences        Json?
+  // Coupled location/origin blocks (OR'd). Array of:
+  //   { residenceCountry, residenceStates[], origins:[{ country, stateTribes:{state:[tribes]} }] }
+  // locationCountry/locationStates/tribePreferences are kept populated from block #1
+  // for backward compatibility with older readers.
+  locationPreferences     Json?
   locationIsDealBreaker   Boolean  @default(false)
 
   religion                String[]
