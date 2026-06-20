@@ -27,17 +27,20 @@ export const submit = async (req: Request, res: Response, next: NextFunction) =>
         const selfie = files?.selfie?.[0];
         const idDoc = files?.idDocument?.[0];
 
-        if (!selfie || !idDoc) {
+        // A selfie is always required. The ID document is optional — the
+        // registration step submits a selfie only; the Options "Get Verified"
+        // screen can additionally attach a government ID.
+        if (!selfie) {
             return res.status(400).json({
                 success: false,
-                message: 'Both a selfie and an ID document are required',
+                message: 'A selfie is required',
             });
         }
 
         const verification = await service.submitVerification(
             userId,
             selfie.buffer,
-            idDoc.buffer
+            idDoc?.buffer
         );
 
         res.status(201).json({

@@ -11,14 +11,17 @@ export const getVerification = (userId: string) =>
 export const submitVerification = async (
     userId: string,
     selfieBuffer: Buffer,
-    idBuffer: Buffer
+    idBuffer?: Buffer
 ) => {
-    const [selfie, idDoc] = await Promise.all([
-        uploadImage(selfieBuffer, 'verification'),
-        uploadImage(idBuffer, 'verification'),
-    ]);
+    const selfie = await uploadImage(selfieBuffer, 'verification');
+    const documents: { selfieUrl: string; idUrl?: string } = {
+        selfieUrl: selfie.url,
+    };
 
-    const documents = { selfieUrl: selfie.url, idUrl: idDoc.url };
+    if (idBuffer) {
+        const idDoc = await uploadImage(idBuffer, 'verification');
+        documents.idUrl = idDoc.url;
+    }
 
     return prisma.verificationRequest.upsert({
         where: { userId },
