@@ -21,6 +21,7 @@ import notificationRoutes from './routes/notification.routes';
 import paymentRoutes from './routes/payment.routes';
 import liveRoutes from './routes/live.routes';
 import adminLiveRoutes from './routes/admin-live.routes';
+import legalRoutes from './routes/legal.routes';
 import { initSocket } from './services/socket.service';
 
 const app = express();
@@ -64,6 +65,7 @@ app.use('/api/preferences', preferencesRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/live', liveRoutes);
+app.use('/api/legal', legalRoutes);
 app.use('/api/admin/live', adminLiveRoutes);
 app.use('/api/admin', adminRoutes);
 

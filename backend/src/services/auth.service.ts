@@ -336,6 +336,34 @@ export const logoutUser = async (userId: string) => {
 };
 
 /**
+ * Permanently delete the authenticated user's own account. Related rows
+ * (profile, photos, matches, messages, likes, blocks, etc.) are removed via the
+ * schema's onDelete: Cascade relations. OTPs are keyed by emailOrPhone (no FK),
+ * so they're cleaned up separately.
+ */
+export const deleteOwnAccount = async (userId: string) => {
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, phoneNumber: true },
+    });
+
+    if (!user) {
+        return { message: 'Account already removed' };
+    }
+
+    await prisma.user.delete({ where: { id: userId } });
+
+    const identifiers = [user.email, user.phoneNumber].filter(Boolean) as string[];
+    if (identifiers.length) {
+        await prisma.oTP.deleteMany({
+            where: { emailOrPhone: { in: identifiers } },
+        });
+    }
+
+    return { message: 'Account deleted successfully' };
+};
+
+/**
  * Forgot password - send reset token
  */
 export const forgotPassword = async (data: ForgotPasswordInput) => {

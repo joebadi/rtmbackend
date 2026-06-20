@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as adminService from '../services/admin.service';
+import * as legalService from '../services/legal.service';
 import {
     adminLoginSchema,
     createAdminSchema,
@@ -435,6 +436,50 @@ export const reviewVerification = async (req: Request, res: Response, next: Next
             notes
         );
         res.status(200).json({ success: true, message: result.message });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * List all legal documents (Privacy Policy, Terms of Use) for editing.
+ */
+export const getLegalDocuments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const documents = await legalService.listDocuments();
+        res.status(200).json({ success: true, data: { documents } });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Create or update a legal document by slug.
+ */
+export const updateLegalDocument = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const slug = req.params.slug as string;
+        const { title, content } = req.body;
+
+        if (!slug || !legalService.isValidSlug(slug)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid document slug',
+            });
+        }
+        if (typeof title !== 'string' || typeof content !== 'string' || !title.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'A title and content are required',
+            });
+        }
+
+        const document = await legalService.upsertDocument(slug, title, content);
+        res.status(200).json({
+            success: true,
+            message: 'Document saved',
+            data: { document },
+        });
     } catch (error) {
         next(error);
     }

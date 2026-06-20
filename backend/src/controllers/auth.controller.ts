@@ -180,6 +180,31 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
 };
 
 /**
+ * Permanently delete the authenticated user's own account
+ */
+export const deleteAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = (req as any).user?.userId;
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Unauthorized',
+            });
+        }
+
+        const result = await authService.deleteOwnAccount(userId);
+
+        res.status(200).json({
+            success: true,
+            message: result.message,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Forgot password - send reset token
  */
 export const forgotPassword = async (req: Request, res: Response, next: NextFunction) => {

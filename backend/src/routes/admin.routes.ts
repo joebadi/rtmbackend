@@ -162,4 +162,22 @@ router.get('/analytics/dashboard', authenticateAdmin, adminController.getDashboa
  */
 router.get('/audit-logs', authenticateAdmin, requireSuperAdmin, adminController.getAuditLogs);
 
+// ============================================
+// LEGAL DOCUMENTS (Privacy Policy, Terms of Use)
+// ============================================
+
+/**
+ * @route   GET /api/admin/legal
+ * @desc    List legal documents for editing
+ * @access  Admin+
+ */
+router.get('/legal', authenticateAdmin, requireAdminOrAbove, adminController.getLegalDocuments);
+
+/**
+ * @route   PUT /api/admin/legal/:slug
+ * @desc    Create or update a legal document
+ * @access  Admin+
+ */
+router.put('/legal/:slug', authenticateAdmin, requireAdminOrAbove, adminController.updateLegalDocument);
+
 export default router;

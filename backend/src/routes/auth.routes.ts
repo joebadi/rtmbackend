@@ -47,6 +47,13 @@ router.post('/refresh-token', authController.refreshToken);
 router.post('/logout', authenticate, authController.logout);
 
 /**
+ * @route   DELETE /api/auth/account
+ * @desc    Permanently delete the authenticated user's own account
+ * @access  Private
+ */
+router.delete('/account', authenticate, authController.deleteAccount);
+
+/**
  * @route   POST /api/auth/forgot-password
  * @desc    Request password reset
  * @access  Public
