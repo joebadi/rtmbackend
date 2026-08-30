@@ -1,5 +1,6 @@
 import { prisma } from '../server';
 import { getIO } from './socket.service';
+import { sendPushToUser } from './push.service';
 
 export class NotificationService {
     static async createNotification(
@@ -26,6 +27,19 @@ export class NotificationService {
                 io.to(userId).emit('notification', notification);
             } catch (socketError) {
                 console.warn('Socket not initialized or failed to emit:', socketError);
+            }
+
+            // Fire-and-forget FCM push (no-op if push is disabled or no token).
+            try {
+                const pushData: Record<string, string> = { type: String(type) };
+                if (data && typeof data === 'object') {
+                    for (const [k, v] of Object.entries(data)) {
+                        if (v != null) pushData[k] = String(v);
+                    }
+                }
+                await sendPushToUser(userId, { title, body, data: pushData });
+            } catch (pushError) {
+                console.warn('[Push] notification push failed:', pushError);
             }
 
             return notification;

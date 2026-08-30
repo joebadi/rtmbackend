@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as adminService from '../services/admin.service';
 import * as legalService from '../services/legal.service';
+import * as paymentGatewayService from '../services/payment-gateway.service';
 import {
     adminLoginSchema,
     createAdminSchema,
@@ -481,6 +482,105 @@ export const updateLegalDocument = async (req: Request, res: Response, next: Nex
             data: { document },
         });
     } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * List supported payment gateways and their runtime/configuration status.
+ */
+export const getPaymentGateways = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+        const gateways = await paymentGatewayService.getPaymentGateways();
+        res.status(200).json({ success: true, data: { gateways } });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Enable or pause a configured payment gateway without exposing its secrets.
+ */
+export const updatePaymentGateway = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const adminId = req.admin?.adminId;
+        const provider = (req.params.provider as string)?.toUpperCase();
+        const { isEnabled } = req.body;
+
+        if (!adminId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        if (typeof isEnabled !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'isEnabled (boolean) is required',
+            });
+        }
+
+        const gateway = await paymentGatewayService.updatePaymentGateway(
+            adminId,
+            provider,
+            isEnabled
+        );
+        res.status(200).json({
+            success: true,
+            message: `${gateway.name} ${isEnabled ? 'enabled' : 'paused'}`,
+            data: { gateway },
+        });
+    } catch (error: any) {
+        if (
+            error.message === 'Unsupported payment gateway' ||
+            error.message?.includes('credentials are not configured')
+        ) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        next(error);
+    }
+};
+
+/**
+ * Save encrypted gateway credentials. Values are write-only: responses contain
+ * masked hints, never the original keys.
+ */
+export const updatePaymentGatewayCredentials = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const adminId = req.admin?.adminId;
+        const provider = (req.params.provider as string)?.toUpperCase();
+        const { publicKey, secretKey } = req.body;
+
+        if (!adminId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        if (typeof publicKey !== 'string' || typeof secretKey !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: 'publicKey and secretKey are required',
+            });
+        }
+
+        const gateway = await paymentGatewayService.savePaymentGatewayCredentials(
+            adminId,
+            provider,
+            publicKey,
+            secretKey
+        );
+        res.status(200).json({
+            success: true,
+            message: `${gateway.name} keys saved securely`,
+            data: { gateway },
+        });
+    } catch (error: any) {
+        if (
+            error.message === 'Unsupported payment gateway' ||
+            error.message?.includes('Paystack') ||
+            error.message?.includes('payment credential')
+        ) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
         next(error);
     }
 };

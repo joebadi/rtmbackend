@@ -1,8 +1,12 @@
 import { prisma } from '../server';
 import { creditDiamonds, getBalance } from './diamond.service';
 import { DIAMOND_PACKAGES, getPackageById } from '../config/diamonds.config';
+import {
+    getPaymentGatewayCredentials,
+    getPaymentGateways,
+    isPaymentGatewayAvailable,
+} from './payment-gateway.service';
 
-const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_BASE = 'https://api.paystack.co';
 
 /**
@@ -20,10 +24,19 @@ export class PaymentNotConfiguredError extends Error {
  * Wallet summary: current diamond balance + the catalogue of purchasable packages.
  */
 export const getWallet = async (userId: string) => {
-    const balance = await getBalance(userId);
+    const [balance, gateways] = await Promise.all([
+        getBalance(userId),
+        getPaymentGateways(),
+    ]);
     return {
         balance,
         packages: DIAMOND_PACKAGES,
+        paymentGateways: gateways.map(({ provider, name, isAvailable }) => ({
+            provider,
+            name,
+            isAvailable,
+        })),
+        paymentsEnabled: gateways.some((gateway) => gateway.isAvailable),
     };
 };
 
@@ -48,7 +61,8 @@ export const listTransactions = async (userId: string, limit = 20, offset = 0) =
  * diamonds by tampering with the request.
  */
 export const initializeDiamondPurchase = async (userId: string, packageId: string) => {
-    if (!PAYSTACK_SECRET) {
+    const credentials = await getPaymentGatewayCredentials('PAYSTACK');
+    if (!credentials || !(await isPaymentGatewayAvailable('PAYSTACK'))) {
         throw new PaymentNotConfiguredError();
     }
 
@@ -93,7 +107,7 @@ export const initializeDiamondPurchase = async (userId: string, packageId: strin
     const response = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
         method: 'POST',
         headers: {
-            Authorization: `Bearer ${PAYSTACK_SECRET}`,
+            Authorization: `Bearer ${credentials.secretKey}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -122,7 +136,10 @@ export const initializeDiamondPurchase = async (userId: string, packageId: strin
  * already-completed transaction will not double-credit.
  */
 export const verifyDiamondPurchase = async (userId: string, reference: string) => {
-    if (!PAYSTACK_SECRET) {
+    // Verification remains available after a gateway is paused so purchases
+    // started just before the switch can still settle and credit the user.
+    const credentials = await getPaymentGatewayCredentials('PAYSTACK');
+    if (!credentials) {
         throw new PaymentNotConfiguredError();
     }
 
@@ -142,7 +159,7 @@ export const verifyDiamondPurchase = async (userId: string, reference: string) =
     }
 
     const response = await fetch(`${PAYSTACK_BASE}/transaction/verify/${reference}`, {
-        headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` },
+        headers: { Authorization: `Bearer ${credentials.secretKey}` },
     });
     const json: any = await response.json();
 

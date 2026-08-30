@@ -156,7 +156,6 @@ export const getProfileById = async (profileUserId: string, viewerUserId?: strin
         where: { userId: profileUserId },
         include: {
             photos: {
-                where: { isVerified: true },
                 orderBy: { isPrimary: 'desc' },
             },
             user: {

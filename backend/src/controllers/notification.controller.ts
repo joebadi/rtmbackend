@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { NotificationService } from '../services/notification.service';
+import { prisma } from '../server';
 
 // Helper to extract user ID from authenticated request
 const getUserId = (req: Request): string => {
@@ -52,5 +53,31 @@ export const getUnreadCount = async (req: Request, res: Response) => {
         res.json({ unreadCount: count });
     } catch (error) {
         res.status(500).json({ error: 'Failed to get unread count' });
+    }
+};
+
+/** Save/refresh the caller's FCM device token (from the mobile app). */
+export const saveDeviceToken = async (req: Request, res: Response) => {
+    try {
+        const userId = getUserId(req);
+        const { token } = req.body ?? {};
+        if (!token || typeof token !== 'string') {
+            return res.status(400).json({ success: false, message: 'token is required' });
+        }
+        await prisma.user.update({ where: { id: userId }, data: { deviceToken: token } });
+        return res.json({ success: true });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to save device token' });
+    }
+};
+
+/** Clear the caller's FCM device token (on logout). */
+export const removeDeviceToken = async (req: Request, res: Response) => {
+    try {
+        const userId = getUserId(req);
+        await prisma.user.update({ where: { id: userId }, data: { deviceToken: null } });
+        return res.json({ success: true });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to remove device token' });
     }
 };

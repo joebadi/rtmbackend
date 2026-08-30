@@ -391,7 +391,6 @@ export const getMatches = async (userId: string, limit: number = 20, offset: num
         where,
         include: {
             photos: {
-                where: { isVerified: true },
                 orderBy: { isPrimary: 'desc' },
                 take: 1,
             },
@@ -494,7 +493,6 @@ export const filterMatches = async (userId: string, filters: FilterMatchesInput)
         where,
         include: {
             photos: {
-                where: { isVerified: true },
                 orderBy: { isPrimary: 'desc' },
                 take: 1,
             },

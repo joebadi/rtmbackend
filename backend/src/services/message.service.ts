@@ -3,6 +3,7 @@ import { SendMessageInput } from '../validators/message.validator';
 import { getIO } from './socket.service';
 import { DIAMOND_COSTS } from '../config/diamonds.config';
 import { debitDiamonds } from './diamond.service';
+import { sendPushToUser } from './push.service';
 
 /**
  * Send a message
@@ -187,6 +188,25 @@ export const sendMessage = async (senderId: string, data: SendMessageInput) => {
             });
         } catch (error) {
             console.warn('Socket emit failed:', error);
+        }
+
+        // FCM push to the receiver's device (no-op if push disabled / no token).
+        try {
+            const senderName = (message as any).sender?.profile?.firstName ?? 'Someone';
+            const senderPhoto = (message as any).sender?.profile?.photos?.[0]?.url ?? '';
+            await sendPushToUser(receiverId, {
+                title: senderName,
+                body: content.substring(0, 120),
+                data: {
+                    type: 'message',
+                    conversationId: conversation.id,
+                    senderId,
+                    senderName,
+                    senderPhoto,
+                },
+            });
+        } catch (pushError) {
+            console.warn('[Push] message push failed:', pushError);
         }
 
         return { message, diamondsSpent, diamondBalance };

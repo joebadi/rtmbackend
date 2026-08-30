@@ -180,4 +180,29 @@ router.get('/legal', authenticateAdmin, requireAdminOrAbove, adminController.get
  */
 router.put('/legal/:slug', authenticateAdmin, requireAdminOrAbove, adminController.updateLegalDocument);
 
+// ============================================
+// PAYMENT GATEWAYS
+// ============================================
+
+router.get(
+    '/payment-gateways',
+    authenticateAdmin,
+    requireAdminOrAbove,
+    adminController.getPaymentGateways
+);
+
+router.patch(
+    '/payment-gateways/:provider',
+    authenticateAdmin,
+    requireAdminOrAbove,
+    adminController.updatePaymentGateway
+);
+
+router.put(
+    '/payment-gateways/:provider/credentials',
+    authenticateAdmin,
+    requireSuperAdmin,
+    adminController.updatePaymentGatewayCredentials
+);
+
 export default router;
