@@ -27,6 +27,7 @@ model User {
   isOnline           Boolean   @default(false)
   lastActive         DateTime  @default(now())
   deviceToken        String?   // FCM token
+  isTest             Boolean   @default(false) // simulated/seed account — hidden from real users
   refreshToken       String?
   passwordResetToken String?
   passwordResetExpiry DateTime?
@@ -516,6 +517,7 @@ model Notification {
 enum NotificationType {
   NEW_LIKE
   MUTUAL_MATCH
+  NEW_MATCH
   NEW_MESSAGE
   PROFILE_VIEW
   VERIFICATION_APPROVED

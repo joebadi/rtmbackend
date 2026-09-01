@@ -254,6 +254,70 @@ export const sendWelcomeEmail = async (email: string, firstName: string): Promis
 };
 
 /**
+ * Send a "new matches near you" email. [matches] is a small list of the top new
+ * compatible profiles (name, age, city, compatibility %).
+ */
+export const sendMatchEmail = async (
+    email: string,
+    firstName: string,
+    matches: { name: string; age?: number; city?: string; score: number }[],
+    totalCount: number
+): Promise<void> => {
+    const rows = matches
+        .map(
+            (m) => `
+            <tr>
+              <td style="padding:10px 0;border-bottom:1px solid #eee;">
+                <strong>${m.name}${m.age ? `, ${m.age}` : ''}</strong>
+                ${m.city ? `<span style="color:#888;"> · ${m.city}</span>` : ''}
+              </td>
+              <td style="padding:10px 0;border-bottom:1px solid #eee;text-align:right;">
+                <span style="background:#FF5722;color:#fff;padding:3px 10px;border-radius:12px;font-size:13px;">${m.score}% match</span>
+              </td>
+            </tr>`
+        )
+        .join('');
+
+    const mailOptions = {
+        from: `"RTM Dating App" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: `💕 ${totalCount} new match${totalCount === 1 ? '' : 'es'} near you`,
+        html: `
+            <!DOCTYPE html><html><head><meta charset="utf-8"></head>
+            <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f9f9f9;margin:0;padding:0;">
+              <div style="max-width:600px;margin:0 auto;padding:20px;">
+                <div style="background:linear-gradient(135deg,#FF5722 0%,#E91E63 100%);color:#fff;padding:28px;text-align:center;border-radius:12px 12px 0 0;">
+                  <h1 style="margin:0;">New matches near you 💕</h1>
+                </div>
+                <div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;">
+                  <p>Hi ${firstName},</p>
+                  <p>You have <strong>${totalCount}</strong> new compatible ${totalCount === 1 ? 'person' : 'people'} in your area on RTM:</p>
+                  <table style="width:100%;border-collapse:collapse;">${rows}</table>
+                  <p style="margin-top:24px;">Open the RTM app to view your matches and start a conversation.</p>
+                  <p style="color:#888;font-size:13px;">You're receiving this because these profiles closely match your preferences.</p>
+                </div>
+                <div style="text-align:center;margin-top:16px;color:#666;font-size:12px;">
+                  &copy; ${new Date().getFullYear()} RTM Dating App
+                </div>
+              </div>
+            </body></html>
+        `,
+    };
+
+    if (transporter) {
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`✅ Match email sent to ${email}`);
+        } catch (error) {
+            console.error(`❌ Failed to send match email to ${email}:`, error);
+            // Non-critical — don't throw.
+        }
+    } else {
+        console.log(`📧 [DEV MODE] Match email would be sent to ${email} (${totalCount} matches)`);
+    }
+};
+
+/**
  * Send password reset email
  */
 export const sendPasswordResetEmail = async (

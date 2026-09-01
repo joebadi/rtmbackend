@@ -46,4 +46,8 @@ process.on('SIGTERM', async () => {
     process.exit(0);
 });
 
-startServer();
+// Only boot the HTTP server when run as the entry point — importing this module
+// (e.g. from a CLI script for `prisma`) must not start a second listener.
+if (require.main === module) {
+    startServer();
+}

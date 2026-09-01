@@ -76,3 +76,4 @@ install-caddy.sh
 
 # Prisma
 prisma/migrations/migration_lock.toml
+usersmock/
