@@ -350,6 +350,7 @@ export const getMatches = async (userId: string, limit: number = 20, offset: num
     // Get opposite gender
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
     const excluded = await getExcludedUserIds(userId);
+    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { isTest: true } });
 
     // Build where clause based on preferences
     const where: Prisma.ProfileWhereInput = {
@@ -359,6 +360,8 @@ export const getMatches = async (userId: string, limit: number = 20, offset: num
         isBanned: false,
         user: {
             isEmailVerified: true,
+            // Hide simulated (isTest) profiles from real users; test accounts see everyone.
+            ...(viewer?.isTest ? {} : { isTest: false }),
         },
     };
 
@@ -532,12 +535,15 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
     const excluded = await getExcludedUserIds(userId);
+    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { isTest: true } });
 
-    const whereClause = {
+    const whereClause: Prisma.ProfileWhereInput = {
         userId: { not: userId, notIn: excluded },
         gender: targetGender as 'MALE' | 'FEMALE', // Re-enabled for proper matching
         isActive: true,
         isBanned: false,
+        // Hide simulated (isTest) profiles from real users; test accounts see everyone.
+        ...(viewer?.isTest ? {} : { user: { isTest: false } }),
         // Removed showOnMap requirement - new users don't have this set
     };
     console.log('Debug: Query where clause:', JSON.stringify(whereClause));
@@ -599,6 +605,7 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
     const excluded = await getExcludedUserIds(userId);
+    const viewer = await prisma.user.findUnique({ where: { id: userId }, select: { isTest: true } });
 
     const where: Prisma.ProfileWhereInput = {
         userId: { not: userId, notIn: excluded },
@@ -607,6 +614,8 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
         isBanned: false,
         user: {
             isEmailVerified: true,
+            // Hide simulated (isTest) profiles from real users; test accounts see everyone.
+            ...(viewer?.isTest ? {} : { isTest: false }),
         },
     };
 

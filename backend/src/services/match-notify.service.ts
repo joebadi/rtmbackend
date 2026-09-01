@@ -39,22 +39,29 @@ const opposite = (g: 'MALE' | 'FEMALE') => (g === 'MALE' ? 'FEMALE' : 'MALE');
  */
 export async function notifyExistingUsersOfNewProfile(
     newUserId: string,
-    opts: { threshold?: number } = {}
+    opts: { threshold?: number; email?: boolean } = {}
 ): Promise<number> {
     const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
+    const sendEmail = opts.email ?? true;
 
     const newProfile = await prisma.profile.findUnique({
         where: { userId: newUserId },
-        select: { firstName: true, age: true, city: true, gender: true, isActive: true },
+        select: {
+            firstName: true, age: true, city: true, gender: true, isActive: true,
+            user: { select: { isTest: true } },
+        },
     });
     if (!newProfile || !newProfile.isActive) return 0;
+    const newIsTest = newProfile.user?.isTest === true;
 
     // Candidate recipients: opposite gender, have preferences, active, and can
     // actually receive (a device token or a deliverable email) — this naturally
-    // skips simulated accounts that have neither.
+    // skips simulated accounts that have neither. A TEST newcomer only ever
+    // notifies other TEST users, so simulated joins never reach real users.
     const recipients = await prisma.user.findMany({
         where: {
             id: { not: newUserId },
+            ...(newIsTest ? { isTest: true } : {}),
             matchPreferences: { isNot: null },
             profile: { gender: opposite(newProfile.gender), isActive: true, isBanned: false },
         },
@@ -69,7 +76,7 @@ export async function notifyExistingUsersOfNewProfile(
         const { score, dealBreakers } = await calculateCompatibility(r.id, newUserId);
         if (dealBreakers.length > 0 || score < threshold) continue;
 
-        await coalesceAndNotify(r, newUserId, newProfile, score);
+        await coalesceAndNotify(r, newUserId, newProfile, score, sendEmail);
         notified++;
     }
     return notified;
@@ -79,7 +86,8 @@ async function coalesceAndNotify(
     recipient: { id: string; email: string; profile: { firstName: string } | null },
     newUserId: string,
     newProfile: { firstName: string; age: number; city: string | null; gender: string },
-    score: number
+    score: number,
+    sendEmail: boolean
 ): Promise<void> {
     const since = new Date(Date.now() - COALESCE_WINDOW_MS);
 
@@ -127,7 +135,7 @@ async function coalesceAndNotify(
     });
 
     // Throttled digest email (skips simulated / non-deliverable addresses).
-    if (isDeliverableEmail(recipient.email)) {
+    if (sendEmail && isDeliverableEmail(recipient.email)) {
         const last = lastEmailAt.get(recipient.id) ?? 0;
         if (Date.now() - last > EMAIL_THROTTLE_MS) {
             lastEmailAt.set(recipient.id, Date.now());
