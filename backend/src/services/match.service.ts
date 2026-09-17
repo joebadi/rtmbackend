@@ -82,6 +82,40 @@ const tribeMatches = (
     return tribe != null && wanted.includes(tribe);
 };
 
+/** Match legacy flat tribe/origin values case-insensitively. Older preference
+ * records stored both tribe names and state-of-origin names in locationTribes. */
+const flatTribeMatches = (
+    wanted: string[],
+    stateOfOrigin?: string | null,
+    tribe?: string | null
+): boolean => {
+    const normalized = new Set(wanted.map((value) => value.trim().toLowerCase()));
+    if (normalized.has('all')) return true;
+    return [stateOfOrigin, tribe].some(
+        (value) => !!value && normalized.has(value.trim().toLowerCase())
+    );
+};
+
+/** Convert profile height strings such as 5'7", 5'7" (170 cm), or 170 cm. */
+const parseHeightCm = (height?: string | null): number | null => {
+    if (!height) return null;
+
+    const cmMatch = height.match(/(\d+(?:\.\d+)?)\s*cm/i);
+    if (cmMatch) return Math.round(Number(cmMatch[1]));
+
+    const imperialMatch = height.match(/(\d+)\s*['′]\s*(\d+)?/);
+    if (imperialMatch) {
+        const feet = Number(imperialMatch[1]);
+        const inches = Number(imperialMatch[2] || 0);
+        return Math.round((feet * 12 + inches) * 2.54);
+    }
+
+    const numeric = Number(height.trim());
+    return Number.isFinite(numeric) && numeric >= 100 && numeric <= 250
+        ? Math.round(numeric)
+        : null;
+};
+
 /**
  * Coupled location/origin preference blocks.
  *
@@ -217,6 +251,17 @@ export const calculateCompatibility = async (
         userPrefs.ageIsDealBreaker
     );
 
+    // Relationship status.
+    if (userPrefs.relationshipStatus.length > 0) {
+        evaluate(
+            'relationshipStatus',
+            10,
+            !!targetProfile.relationshipStatus &&
+                userPrefs.relationshipStatus.includes(targetProfile.relationshipStatus),
+            userPrefs.relationshipIsDealBreaker
+        );
+    }
+
     // Location + origin. Prefer the coupled-block model when present; otherwise fall
     // back to the legacy residence-states + tribePreferences scoring.
     const locationBlocks = parseLocationPreferences(userPrefs.locationPreferences);
@@ -229,12 +274,15 @@ export const calculateCompatibility = async (
             userPrefs.locationIsDealBreaker
         );
     } else {
-        // Legacy: preferred residence state.
-        if (userPrefs.locationStates.length > 0) {
+        // Legacy: preferred residence country/state.
+        if (userPrefs.locationCountry || userPrefs.locationStates.length > 0) {
             evaluate(
                 'location',
                 10,
-                !!targetProfile.state && userPrefs.locationStates.includes(targetProfile.state),
+                (!userPrefs.locationCountry || targetProfile.country === userPrefs.locationCountry) &&
+                    (userPrefs.locationStates.length === 0 ||
+                        (!!targetProfile.state &&
+                            userPrefs.locationStates.includes(targetProfile.state))),
                 userPrefs.locationIsDealBreaker
             );
         }
@@ -247,6 +295,17 @@ export const calculateCompatibility = async (
                 10,
                 tribeMatches(tribePrefs, targetProfile.stateOfOrigin, targetProfile.tribe),
                 // Tribe rides on the location deal-breaker toggle for now.
+                userPrefs.locationIsDealBreaker
+            );
+        } else if (userPrefs.locationTribes.length > 0) {
+            evaluate(
+                'tribe',
+                10,
+                flatTribeMatches(
+                    userPrefs.locationTribes,
+                    targetProfile.stateOfOrigin,
+                    targetProfile.tribe
+                ),
                 userPrefs.locationIsDealBreaker
             );
         }
@@ -289,6 +348,19 @@ export const calculateCompatibility = async (
             5,
             !!targetProfile.bloodGroup && userPrefs.bloodGroup.includes(targetProfile.bloodGroup),
             userPrefs.bloodGroupIsDealBreaker
+        );
+    }
+
+    // Height. Profiles store a display string while preferences store cm.
+    if (userPrefs.heightMin != null || userPrefs.heightMax != null) {
+        const targetHeightCm = parseHeightCm(targetProfile.height);
+        evaluate(
+            'height',
+            10,
+            targetHeightCm != null &&
+                (userPrefs.heightMin == null || targetHeightCm >= userPrefs.heightMin) &&
+                (userPrefs.heightMax == null || targetHeightCm <= userPrefs.heightMax),
+            userPrefs.heightIsDealBreaker
         );
     }
 
@@ -517,17 +589,59 @@ export const filterMatches = async (userId: string, filters: FilterMatchesInput)
     return profiles;
 };
 
+const distanceInKm = (
+    latitudeA: number,
+    longitudeA: number,
+    latitudeB: number,
+    longitudeB: number
+) => {
+    const radians = (degrees: number) => (degrees * Math.PI) / 180;
+    const latitudeDelta = radians(latitudeB - latitudeA);
+    const longitudeDelta = radians(longitudeB - longitudeA);
+    const haversine =
+        Math.sin(latitudeDelta / 2) ** 2 +
+        Math.cos(radians(latitudeA)) *
+            Math.cos(radians(latitudeB)) *
+            Math.sin(longitudeDelta / 2) ** 2;
+    const a = Math.min(1, Math.max(0, haversine));
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 /**
- * Get nearby users (simplified - will use PostGIS later)
+ * Get nearby users with entitlement-aware distance enforcement.
+ * Free users are capped at 50 km. Premium users may search within 500 km and
+ * can opt into travel mode by supplying a different search centre.
  */
 export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) => {
     console.log(`Debug: getNearbyUsers called for ${userId}`);
-    const userProfile = await prisma.profile.findUnique({ where: { userId } });
+    const userProfile = await prisma.profile.findUnique({
+        where: { userId },
+        include: {
+            user: { select: { isPremium: true } },
+        },
+    });
 
     if (!userProfile) {
         console.log('Debug: Profile not found');
         throw new Error('Profile not found');
     }
+
+    if (!userProfile.user.isPremium && params.useCustomLocation) {
+        const error: any = new Error('Travel mode requires a premium subscription');
+        error.status = 403;
+        throw error;
+    }
+
+    const maximumRadius = userProfile.user.isPremium ? 500 : 50;
+    const effectiveRadius = Math.min(Math.max(params.radius, 1), maximumRadius);
+    const centerLatitude = params.latitude;
+    const centerLongitude = params.longitude;
+    const latitudeDelta = effectiveRadius / 110.574;
+    const longitudeScale = Math.max(
+        Math.abs(Math.cos((centerLatitude * Math.PI) / 180)),
+        0.01
+    );
+    const longitudeDelta = effectiveRadius / (111.32 * longitudeScale);
     console.log(`Debug: User gender: ${userProfile.gender}`);
 
     const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
@@ -538,12 +652,29 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
         gender: targetGender as 'MALE' | 'FEMALE', // Re-enabled for proper matching
         isActive: true,
         isBanned: false,
-        // Removed showOnMap requirement - new users don't have this set
+        AND: [
+            {
+                OR: [
+                    // Demo profiles intentionally remain visible for product demos.
+                    { user: { isTest: true } },
+                    {
+                        latitude: {
+                            not: null,
+                            gte: Math.max(-90, centerLatitude - latitudeDelta),
+                            lte: Math.min(90, centerLatitude + latitudeDelta),
+                        },
+                        longitude: {
+                            not: null,
+                            gte: Math.max(-180, centerLongitude - longitudeDelta),
+                            lte: Math.min(180, centerLongitude + longitudeDelta),
+                        },
+                    },
+                ],
+            },
+        ],
     };
     console.log('Debug: Query where clause:', JSON.stringify(whereClause));
 
-    // For now, return users from same country/state
-    // TODO: Implement PostGIS distance calculation
     const profiles = await prisma.profile.findMany({
         where: whereClause,
         include: {
@@ -564,7 +695,6 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
                 },
             },
         },
-        take: params.limit,
     });
 
     console.log(`Debug: Found ${profiles.length} profiles`);
@@ -573,16 +703,46 @@ export const getNearbyUsers = async (userId: string, params: NearbyUsersInput) =
         console.log('Debug: First profile user:', profiles[0].user);
     }
 
-    // Return profiles with distance - preserve nested structure for photos and user
-    const profilesWithDistance = profiles.map((profile) => ({
-        ...profile,
-        distance: 0, // Placeholder
-        // Ensure photos and user are preserved
-        photos: profile.photos || [],
-        user: profile.user,
-    }));
+    const profilesWithDistance = profiles
+        .map((profile) => {
+            const hasCoordinates =
+                profile.latitude !== null && profile.longitude !== null;
+            const distance = hasCoordinates
+                ? distanceInKm(
+                      centerLatitude,
+                      centerLongitude,
+                      profile.latitude as number,
+                      profile.longitude as number
+                  )
+                : profile.user.isTest
+                  ? 0
+                  : Number.POSITIVE_INFINITY;
+            return {
+                ...profile,
+                distance,
+                photos: profile.photos || [],
+                user: profile.user,
+            };
+        })
+        .filter(
+            (profile) =>
+                profile.user.isTest || profile.distance <= effectiveRadius
+        )
+        .sort((left, right) => left.distance - right.distance)
+        .slice(0, params.limit)
+        .map((profile) => ({
+            ...profile,
+            distance: Math.round(profile.distance),
+        }));
 
-    return profilesWithDistance;
+    return {
+        users: profilesWithDistance,
+        radius: effectiveRadius,
+        center: {
+            latitude: centerLatitude,
+            longitude: centerLongitude,
+        },
+    };
 };
 
 /**
@@ -698,4 +858,62 @@ export const getMatchSuggestions = async (userId: string, limit: number = 10) =>
         user: profile.user,
         compatibility: null,
     }));
+};
+
+/**
+ * Users whose OWN partner preferences my profile satisfies — i.e. "people
+ * looking for me". For each opposite-gender candidate who has set preferences,
+ * we score THEIR preferences against MY profile (calculateCompatibility(themId,
+ * myId)), drop anyone whose deal-breakers I fail, and sort by how strongly they
+ * match me. The shape mirrors getMatchSuggestions: `{ profile, compatibility }`.
+ */
+export const getUsersInterestedInMe = async (userId: string, limit: number = 50) => {
+    const userProfile = await prisma.profile.findUnique({ where: { userId } });
+    if (!userProfile) {
+        throw new Error('Profile not found');
+    }
+
+    const targetGender = userProfile.gender === 'MALE' ? 'FEMALE' : 'MALE';
+    const excluded = await getExcludedUserIds(userId);
+
+    const profiles = await prisma.profile.findMany({
+        where: {
+            userId: { not: userId, notIn: excluded },
+            gender: targetGender as 'MALE' | 'FEMALE',
+            isActive: true,
+            isBanned: false,
+            // They must have preferences for their side to match my profile.
+            user: { isEmailVerified: true, matchPreferences: { isNot: null } },
+        },
+        include: {
+            photos: { orderBy: { isPrimary: 'desc' }, take: 3 },
+            user: {
+                select: {
+                    id: true,
+                    isPremium: true,
+                    isOnline: true,
+                    lastActive: true,
+                    matchPreferences: true,
+                },
+            },
+        },
+        take: limit * 4, // scored + filtered below
+    });
+
+    const scored = await Promise.all(
+        profiles.map(async (profile) => {
+            // THEIR preferences vs MY profile.
+            const compatibility = await calculateCompatibility(profile.userId, userId);
+            return { profile, compatibility };
+        })
+    );
+
+    return scored
+        .filter((m) => m.compatibility.dealBreakers.length === 0)
+        .sort((a, b) => {
+            if (a.profile.user.isOnline && !b.profile.user.isOnline) return -1;
+            if (!a.profile.user.isOnline && b.profile.user.isOnline) return 1;
+            return b.compatibility.score - a.compatibility.score;
+        })
+        .slice(0, limit);
 };

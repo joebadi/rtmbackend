@@ -207,6 +207,35 @@ export const getMatchSuggestions = async (
 };
 
 /**
+ * Users whose partner preferences my profile satisfies — "people looking for me".
+ */
+export const getInterestedInMe = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const limit = parseInt(req.query.limit as string) || 50;
+        const matches = await matchService.getUsersInterestedInMe(userId, limit);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                matches,
+                count: matches.length,
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Get nearby users (geolocation-based)
  */
 export const getNearbyUsers = async (req: Request, res: Response, next: NextFunction) => {
@@ -222,14 +251,15 @@ export const getNearbyUsers = async (req: Request, res: Response, next: NextFunc
         // Validate input
         const validatedData = nearbyUsersSchema.parse(req.body);
 
-        const nearbyUsers = await matchService.getNearbyUsers(userId, validatedData);
+        const nearby = await matchService.getNearbyUsers(userId, validatedData);
 
         res.status(200).json({
             success: true,
             data: {
-                users: nearbyUsers,
-                count: nearbyUsers.length,
-                radius: validatedData.radius,
+                users: nearby.users,
+                count: nearby.users.length,
+                radius: nearby.radius,
+                center: nearby.center,
             },
         });
     } catch (error: any) {

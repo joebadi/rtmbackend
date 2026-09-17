@@ -40,6 +40,13 @@ router.post('/filter', authenticate, matchController.filterMatches);
 router.get('/suggestions', authenticate, matchController.getMatchSuggestions);
 
 /**
+ * @route   GET /api/matches/interested-in-me
+ * @desc    Users whose partner preferences my profile satisfies ("looking for me")
+ * @access  Private
+ */
+router.get('/interested-in-me', authenticate, matchController.getInterestedInMe);
+
+/**
  * @route   GET /api/matches/compatibility/:targetUserId
  * @desc    Get compatibility score with specific user
  * @access  Private
