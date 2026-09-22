@@ -88,15 +88,16 @@ export async function runSchedulerTick() {
         select: { id: true, title: true },
     });
     for (const ev of dueToStart) {
-        // Claim by flipping to LOBBY; the winner proceeds to start (which sets LIVE).
-        const claim = await prisma.liveEvent.updateMany({
-            where: { id: ev.id, status: { in: ['SCHEDULED', 'BOOKING_OPEN', 'LOBBY'] } },
-            data: { status: 'LOBBY' },
+        // Only auto-start once at least 2 people are actually in the lobby.
+        // Starting an empty event would immediately end it (and it would vanish
+        // from the app), so instead we leave it visible and retry on later ticks.
+        const inLobby = await prisma.liveEventBooking.count({
+            where: { eventId: ev.id, joinedLobbyAt: { not: null }, status: { in: ['BOOKED', 'ATTENDED'] } },
         });
-        if (claim.count !== 1) continue;
+        if (inLobby < 2) continue;
         try {
-            await engine.startEvent(ev.id);
-            console.log(`[live-scheduler] auto-started "${ev.title}"`);
+            const r = await engine.startEvent(ev.id);
+            if ((r as any)?.started !== false) console.log(`[live-scheduler] auto-started "${ev.title}"`);
         } catch (e) {
             console.error(`[live-scheduler] auto-start failed for "${ev.title}":`, e);
         }

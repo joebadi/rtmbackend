@@ -200,6 +200,13 @@ export const getEventResults = async (req: Request, res: Response) => {
 export const adminStartEvent = async (req: Request, res: Response) => {
     try {
         const result = await liveEngine.startEvent(req.params.id as string);
+        if ((result as any)?.started === false) {
+            return res.status(409).json({
+                success: false,
+                message: (result as any).reason || 'Not enough participants to start yet',
+                data: result,
+            });
+        }
         res.status(200).json({ success: true, message: 'Event started', data: result });
     } catch (error) {
         handleError(res, error);

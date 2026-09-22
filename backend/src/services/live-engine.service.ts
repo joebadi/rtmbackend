@@ -66,11 +66,28 @@ export const startEvent = async (eventId: string) => {
     if (!event) throw new Error('Event not found');
     if (runtimes.has(eventId)) throw new Error('Event is already running');
 
-    // No-show gating: only people who actually showed up to the lobby are
-    // admitted. A confirmed slot with a lobby join becomes ATTENDED; a booker who
-    // never opened the lobby is marked NO_SHOW and won't be paired into an empty
-    // call. Latecomers can still rejoin via joinLobby and get picked up from the
-    // next round (NO_SHOW → ATTENDED on lobby entry).
+    // Guard: never start with fewer than 2 people in the lobby. Doing so would
+    // mark the rest NO_SHOW and immediately end the event (0 pairings), which
+    // drops it out of the app's visible statuses — i.e. it "disappears". Instead
+    // we hold: leave the event's status untouched (still visible/bookable) and
+    // report that we're waiting, so the admin or auto-start can begin it once
+    // enough people have arrived.
+    const inLobby = await prisma.liveEventBooking.count({
+        where: { eventId, joinedLobbyAt: { not: null }, status: { in: ['BOOKED', 'ATTENDED'] } },
+    });
+    if (inLobby < 2) {
+        return {
+            status: event.status,
+            started: false,
+            inLobby,
+            reason: 'Need at least 2 people in the lobby to start the event.',
+        };
+    }
+
+    // No-show gating: only now (once we're really starting) do we settle
+    // attendance — lobby joiners become ATTENDED, confirmed bookers who never
+    // opened the lobby become NO_SHOW so they aren't paired into an empty call.
+    // Latecomers can still rejoin via joinLobby and get picked up next round.
     await prisma.liveEventBooking.updateMany({
         where: { eventId, status: 'BOOKED', joinedLobbyAt: { not: null } },
         data: { status: 'ATTENDED' },
@@ -84,7 +101,7 @@ export const startEvent = async (eventId: string) => {
     runtimes.set(eventId, { roundNumber: 0, timer: null, roundEndsAt: null });
 
     await runNextRound(eventId);
-    return { status: 'LIVE' };
+    return { status: 'LIVE', started: true };
 };
 
 /** Pair people for the next round, or end the event when no pairings remain. */
