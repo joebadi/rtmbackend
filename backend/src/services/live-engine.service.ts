@@ -2,6 +2,7 @@ import { prisma } from '../server';
 import { getIO } from './socket.service';
 import { generateRtcToken, uidFromUserId } from './agora.service';
 import { debitDiamonds, getBalance } from './diamond.service';
+import { sendPushToUser } from './push.service';
 
 /**
  * Live Dates realtime engine — the round-robin "matchmaker".
@@ -65,10 +66,18 @@ export const startEvent = async (eventId: string) => {
     if (!event) throw new Error('Event not found');
     if (runtimes.has(eventId)) throw new Error('Event is already running');
 
-    // Everyone still holding a confirmed slot becomes an attendee.
+    // No-show gating: only people who actually showed up to the lobby are
+    // admitted. A confirmed slot with a lobby join becomes ATTENDED; a booker who
+    // never opened the lobby is marked NO_SHOW and won't be paired into an empty
+    // call. Latecomers can still rejoin via joinLobby and get picked up from the
+    // next round (NO_SHOW → ATTENDED on lobby entry).
     await prisma.liveEventBooking.updateMany({
-        where: { eventId, status: 'BOOKED' },
+        where: { eventId, status: 'BOOKED', joinedLobbyAt: { not: null } },
         data: { status: 'ATTENDED' },
+    });
+    await prisma.liveEventBooking.updateMany({
+        where: { eventId, status: 'BOOKED', joinedLobbyAt: null },
+        data: { status: 'NO_SHOW' },
     });
 
     await prisma.liveEvent.update({ where: { id: eventId }, data: { status: 'LIVE' } });
@@ -240,12 +249,15 @@ export const joinLobby = async (userId: string, eventId: string) => {
     const booking = await prisma.liveEventBooking.findUnique({
         where: { eventId_userId: { eventId, userId } },
     });
-    if (!booking || !['BOOKED', 'ATTENDED'].includes(booking.status)) {
+    // A confirmed booker — or someone previously marked NO_SHOW who arrives late —
+    // may enter the lobby. Joining promotes them to ATTENDED so the round engine
+    // pairs them from the next round on. Waitlisted/cancelled cannot enter.
+    if (!booking || !['BOOKED', 'ATTENDED', 'NO_SHOW'].includes(booking.status)) {
         throw new Error('You have not booked this event');
     }
     await prisma.liveEventBooking.update({
         where: { id: booking.id },
-        data: { joinedLobbyAt: new Date() },
+        data: { joinedLobbyAt: new Date(), status: 'ATTENDED' },
     });
     return { joined: true };
 };
@@ -520,5 +532,11 @@ const createMatch = async (userA: string, userB: string) => {
             },
         });
         emit(self, 'live:matched', { partner: card });
+        // Push as well, so a match still lands if the app is backgrounded.
+        await sendPushToUser(self, {
+            title: "It's a match! 💖",
+            body: `You and ${card.firstName} both said yes on Live Dates.`,
+            data: { type: 'match', matchedUserId: other },
+        }).catch(() => {});
     }
 };

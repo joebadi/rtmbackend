@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { initFirebase } from './config/firebase';
+import { startScheduler } from './services/live-scheduler.service';
 
 const PORT = process.env.PORT || 4000;
 
@@ -27,6 +28,10 @@ async function startServer() {
             console.log(`🔗 Health check: http://localhost:${PORT}/health`);
             console.log(`🔗 API endpoint: http://localhost:${PORT}/api`);
         });
+
+        // Live Dates scheduler (reminders + auto-start) — in-process on purpose,
+        // so auto-started events' round timers live in this server, not a cron.
+        startScheduler();
     } catch (error) {
         console.error('❌ Failed to start server:', error);
         process.exit(1);

@@ -606,6 +606,8 @@ model LiveEvent {
   startsAt               DateTime
   bookingOpensAt         DateTime
   recurrence             String?         // null = one-off, else e.g. "FRI 20:00"
+  autoStart              Boolean         @default(false) // scheduler transitions to LIVE at startsAt
+  reminderSentAt         DateTime?       // "starting soon" push already sent (dedupe guard)
 
   // Rules
   capacity               Int
