@@ -1,11 +1,18 @@
 import { Router } from 'express';
 import * as liveController from '../controllers/live.controller';
 import { authenticateAdmin, requireAdminOrAbove } from '../middleware/admin-auth.middleware';
+import { upload } from '../middleware/upload.middleware';
 
 const router = Router();
 
 // All admin Live Dates routes require an authenticated admin.
 router.use(authenticateAdmin, requireAdminOrAbove);
+
+/**
+ * @route   POST /api/admin/live/upload-cover
+ * @desc    Upload a cover image (multipart field "file"); returns { url }
+ */
+router.post('/upload-cover', upload.single('file'), liveController.adminUploadCover);
 
 /**
  * @route   GET /api/admin/live/events

@@ -20,7 +20,8 @@ export const createEventSchema = z.object({
     genderBalanced: z.boolean().default(true),
     freeUnveils: z.number().int().min(0).max(20).default(3),
     unveilCost: z.number().int().min(0).default(20),
-    coverImageUrl: z.string().url().optional().nullable(),
+    // Full URL (external) or a relative upload path like /uploads/live-covers/x.jpg
+    coverImageUrl: z.string().max(1000).optional().nullable(),
 });
 
 export const updateEventSchema = createEventSchema.partial();

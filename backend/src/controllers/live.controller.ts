@@ -3,6 +3,7 @@ import * as liveService from '../services/live.service';
 import * as agoraService from '../services/agora.service';
 import * as liveEngine from '../services/live-engine.service';
 import { createEventSchema, updateEventSchema } from '../validators/live.validator';
+import { uploadImage } from '../utils/storage.util';
 
 const unauthorized = (res: Response) =>
     res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -218,6 +219,19 @@ export const adminEndEvent = async (req: Request, res: Response) => {
     try {
         const result = await liveEngine.endEvent(req.params.id as string);
         res.status(200).json({ success: true, message: 'Event ended', data: result });
+    } catch (error) {
+        handleError(res, error);
+    }
+};
+
+/** Upload a cover image for an event; returns the stored URL for the form. */
+export const adminUploadCover = async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No image file uploaded' });
+        }
+        const result = await uploadImage(req.file.buffer, 'live-covers', req.file.originalname);
+        res.status(201).json({ success: true, message: 'Cover uploaded', data: { url: result.url } });
     } catch (error) {
         handleError(res, error);
     }
