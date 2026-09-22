@@ -10,6 +10,7 @@ export const createEventSchema = z.object({
     startsAt: z.coerce.date(),
     bookingOpensAt: z.coerce.date(),
     recurrence: z.string().max(120).optional().nullable(),
+    autoStart: z.boolean().default(false),
     capacity: z.number().int().min(2).max(1000),
     diamondCost: z.number().int().min(0).default(0),
     roundSeconds: z.number().int().min(30).max(1800).default(180),
